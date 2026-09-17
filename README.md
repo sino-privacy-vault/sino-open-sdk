@@ -4,7 +4,7 @@ Welcome to the official security core of **Sino**.
 
 Sino is a privacy-first encryption layer designed to sit on top of your existing
 cloud storage. This repository contains the reference implementation of our
-**Zero-Knowledge Architecture**. By open-sourcing these core components, we
+**Zero-Knowledge Architecture**, including our **Post-Quantum Cryptography (PQC v1)** protocol. By open-sourcing these core components, we
 provide the community and security researchers with the means to verify our
 privacy claims.
 
@@ -19,30 +19,34 @@ This SDK includes the actual cryptographic engines used by the Sino application
 to ensure that:
 
 1. All encryption happens locally on your device before network transmission.
-2. Only you not Sino, not cloud providers, and not any third party hold the keys
+2. Only you—not Sino, not cloud providers, and not any third party—hold the keys
    to your data.
 3. Cloud providers are treated as "dumb storage," remaining completely blind to
    your filenames, structures, and content.
+4. Your data is protected against future quantum computing decryption threats (e.g., Shor's algorithm) via NIST FIPS 203 & 204 post-quantum standards.
 
 ---
 
 ## 📂 Included Components & Specifications
 
 - **[`SPECIFICATION.md`](SPECIFICATION.md)**: Formal open specification for
-  Sino's 4-tier key hierarchy, path salting, and 1MB chunked GCM streaming.
+  Sino's 4-tier key hierarchy, path salting, 1MB chunked GCM streaming, and **Post-Quantum Cryptography (PQC v1) Protocol Architecture**.
 - **`crypto/AESEncryptionEngine.kt`**: Implementation of AES-256-GCM, including
   **Encryption v2 (Protocol v3)** with standardized big-endian counter nonces.
+- **`crypto/HKDFEngine.kt`**: Implementation of **domain-separated HKDF-SHA-512** for vault key (`SINO/V1/VAULT`) and per-file DEK (`SINO/V1/FILE/`) derivation.
+- **`crypto/MLKEMEngine.kt`**: Implementation of **NIST FIPS 203 ML-KEM-768** post-quantum key encapsulation mechanism.
+- **`crypto/MLDSAEngine.kt`**: Implementation of **NIST FIPS 204 ML-DSA-65** post-quantum digital signatures for signing vault manifests.
+- **`crypto/DeviceKeyManager.kt`**: Multi-device key envelope (`KeyEnvelope`) creation, AES-256-GCM + ML-KEM shared secret unwrapping, and device revocation filtering.
+- **`crypto/VaultMigrationEngine.kt`**: Auto-migration engine upgrading legacy vault manifests to PQC v1 headers (`SINO-VAULT-V1-AES256GCM-HKDFSHA512-MLKEM768`).
 - **`crypto/SinoKeyDerivation.kt`**: Implementation of **Argon2id** (64MB RAM, 3
   iterations, 4 parallelism threads) for high-entropy key derivation.
 - **`crypto/CloudPathHasher.kt`**: HMAC-SHA256 path anonymizer implementing
   standardized RAID truncation (16/12 characters) for complete "Cloud Blindness".
 - **`crypto/DuressKeyDerivation.kt`**: Domain-separated key derivation
   specification for dual-vault decoy key isolation.
-- **`cli/SinoDecryptorCLI.kt`**: Standalone desktop CLI recovery runner (runs on
-  Linux/macOS/Windows independently of the mobile app).
+- **`cli/SinoDecryptorCLI.kt`**: Standalone desktop CLI recovery runner supporting direct DEK mode and PQC v1 manifest recovery (`--pqc`).
 - **`cloud/CloudClient.kt`**: Interface defining our "Blind Cloud" protocol.
-- **`models/MetadataModel.kt`**: Specification for Sino's versioned encrypted 
-  metadata blobs.
+- **`crypto/KeyEnvelope.kt`**: Versioned `KeyEnvelope` and `VaultManifest` serializable data models.
 
 ---
 
@@ -66,71 +70,72 @@ macOS, Windows):
 Users can recover and decrypt their Sino files on any desktop operating system
 independently of the official application binaries.
 
+#### A. Direct DEK / IV Mode
 ```bash
 # Syntax
-java -cp build/libs/sino-open-sdk-1.0.0.jar com.sino.sdk.cli.SinoDecryptorCLI <input_file> <output_file> <base64_dek> <base64_iv> [is_chunked] [encryption_version]
+java -cp build/libs/sino-open-sdk-3.2.0.jar com.sino.sdk.cli.SinoDecryptorCLI <input_file> <output_file> <base64_dek> <base64_iv> [is_chunked] [encryption_version]
 
-# Example (v2 Standard Encryption)
-java -cp build/libs/sino-open-sdk-1.0.0.jar com.sino.sdk.cli.SinoDecryptorCLI video.enc video.mp4 K7aB...== Iv9x...== true 2
+# Example
+java -cp build/libs/sino-open-sdk-3.2.0.jar com.sino.sdk.cli.SinoDecryptorCLI video.enc video.mp4 K7aB...== Iv9x...== true 1
 ```
 
-### 3. Programmatic Integration Examples (Kotlin / Java)
+#### B. PQC v1 Vault Manifest Mode
+```bash
+# Syntax
+java -cp build/libs/sino-open-sdk-3.2.0.jar com.sino.sdk.cli.SinoDecryptorCLI --pqc <manifest_file> <device_id> <b64_mlkem_privkey> <input_file> <output_file> <file_id> <base64_iv> [b64_mldsa_pubkey]
 
-#### A. AES-256-GCM Chunked Encryption (Protocol v3)
-
-Sino uses a 1MB chunked format to enable random-access streaming. **Version 2**
-uses the industry-standard big-endian counter for nonces.
-
-```kotlin
-import com.sino.sdk.crypto.AESEncryptionEngine
-import java.security.SecureRandom
-
-val engine = AESEncryptionEngine()
-val dek = ByteArray(32).also { SecureRandom().nextBytes(it) }
-val iv = ByteArray(12).also { SecureRandom().nextBytes(it) }
-
-// Encrypt payload stream into 1MB chunks (Encryption v2)
-engine.encryptChunked(inputStream, outputStream, dek, iv, version = 2)
-
-// Random Access Seek (Self-seeking)
-// The engine automatically aligns the stream internally based on startByte.
-engine.decryptRange(
-    inputStream, outputStream, dek, iv, 
-    startByte = 5242880, // Seek to 5MB
-    length = 1048576,    // Decrypt 1MB
-    totalSize = totalFileSize,
-    version = 2,
-    streamOffset = 0L    // Provided stream starts at the beginning
-)
+# Example
+java -cp build/libs/sino-open-sdk-3.2.0.jar com.sino.sdk.cli.SinoDecryptorCLI --pqc manifest.json device-01 mlkemKey...== doc.enc doc.pdf 1005 Iv9x...== mldsaKey...==
 ```
 
-#### B. Argon2id Key Derivation
+---
+
+## 🔐 Programmatic Integration Examples (Kotlin / Java)
+
+### A. Post-Quantum Key Encapsulation (ML-KEM-768)
 
 ```kotlin
-import com.sino.sdk.crypto.SinoKeyDerivation
+import com.sino.sdk.crypto.MLKEMEngine
 
-val derivation = SinoKeyDerivation()
-val salt = "UserSpecificSalt123".toByteArray()
-val derivedKey = derivation.deriveKey("MasterPassword123!", salt)
+val mlKem = MLKEMEngine()
+val keyPair = mlKem.generateKeyPair()
+
+// Encapsulate shared secret using device's ML-KEM-768 public key
+val (ciphertext, sharedSecretEnc) = mlKem.encapsulate(keyPair.publicKey)
+
+// Decapsulate shared secret using device's ML-KEM-768 private key
+val sharedSecretDec = mlKem.decapsulate(ciphertext, keyPair.privateKey)
+
+keyPair.zeroize()
 ```
 
-#### C. Cloud Path Anonymization (HMAC-SHA256)
-
-Standardized truncation ensures that hashes match the official Sino RAID structure.
+### B. Post-Quantum Manifest Digital Signatures (ML-DSA-65)
 
 ```kotlin
-import com.sino.sdk.crypto.CloudPathHasher
+import com.sino.sdk.crypto.MLDSAEngine
 
-val pathSalt = "SecretPathSaltBytes".toByteArray()
+val mlDsa = MLDSAEngine()
+val keyPair = mlDsa.generateKeyPair()
 
-// Generate Folder Hash (16 characters)
-val folderHash = CloudPathHasher.computeCloudFolderHash("DCIM/Vacation", pathSalt)
+val payload = manifest.toJson().encodeToByteArray()
+val signature = mlDsa.sign(payload, keyPair.privateKey)
 
-// Generate Filename Hash (16 characters)
-val fileHash = CloudPathHasher.computeCloudFileHash("sha256-checksum", pathSalt)
+val isValid = mlDsa.verify(payload, signature, keyPair.publicKey)
+keyPair.zeroize()
+```
 
-// Generate Metadata Batch Name (12 chars + .batch)
-val batchName = CloudPathHasher.computeMetadataBatchHash(folderId, pathSalt)
+### C. Domain-Separated HKDF-SHA-512 Key Derivation
+
+```kotlin
+import com.sino.sdk.crypto.HKDFEngine
+
+val hkdf = HKDFEngine()
+
+// Derive Vault Key from Root Master Key
+val vaultKey = hkdf.deriveVaultKey(rootMasterKey)
+
+// Derive per-file DEK using Vault Key and File ID
+val fileDek = hkdf.deriveFileKey(vaultKey, fileId = 1001L)
 ```
 
 ---

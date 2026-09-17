@@ -102,3 +102,54 @@ Sino utilizes a structured JSON format for file metadata. This metadata is the "
 - `isChunked`: supports 1MB GCM chunked random access.
 - `isDuress`: Forensic isolation flag.
 - `providerHints`: A list of RAID targets (e.g., `["MEGA", "GOOGLE_DRIVE", "S3:100"]`).
+
+---
+
+## 8. Post-Quantum Cryptography (PQC v1) Protocol Architecture
+
+Sino v2.0+ implements post-quantum cryptographic protection against future quantum computing decryption threats (e.g., Shor's algorithm).
+
+### 8.1 Cryptographic Suite Identifier
+`SINO-VAULT-V1-AES256GCM-HKDFSHA512-MLKEM768`
+
+### 8.2 Key Encapsulation Mechanism (ML-KEM-768)
+- **Standard**: NIST FIPS 203 (ML-KEM-768)
+- **Public Key Length**: 1,184 bytes
+- **Private Key Length**: 2,400 bytes
+- **Ciphertext Length**: 1,088 bytes
+- **Shared Secret Length**: 32 bytes (256 bits)
+- **Usage**: Used to establish post-quantum secure key exchange between devices without transmitting raw vault keys over network channels.
+
+### 8.3 Digital Signatures (ML-DSA-65)
+- **Standard**: NIST FIPS 204 (ML-DSA-65)
+- **Public Key Length**: 1,952 bytes
+- **Private Key Length**: 4,032 bytes
+- **Signature Length**: 3,309 bytes
+- **Usage**: Provides post-quantum digital signatures binding `VaultManifest` headers, key envelopes, and security metadata.
+
+### 8.4 Domain-Separated HKDF-SHA-512
+All key derivations use HKDF-SHA-512 with strict domain separation:
+- **Vault Key Derivation**:
+  $$\text{VaultKey} = \text{HKDF-SHA-512}(\text{salt}=\text{null}, \text{IKM}=\text{RootMasterKey}, \text{info}=\text{"SINO/V1/VAULT"}, \text{length}=32)$$
+- **File DEK Derivation**:
+  $$\text{FileDEK} = \text{HKDF-SHA-512}(\text{salt}=\text{null}, \text{IKM}=\text{VaultKey}, \text{info}=\text{"SINO/V1/FILE/"} \parallel \text{FileID}, \text{length}=32)$$
+
+### 8.5 Multi-Device Key Envelopes (`KeyEnvelope`)
+Vault keys are encrypted for each authorized device using AES-256-GCM keyed by the device's ML-KEM-768 shared secret:
+$$\text{EncryptedVaultKey} = \text{AES-256-GCM-Encrypt}(\text{Key}=\text{SharedSecret}_{\text{MLKEM}}, \text{IV}=\text{Nonce}_{96}, \text{Data}=\text{VaultKey})$$
+
+Each `KeyEnvelope` contains:
+- `keyId`: Device Identifier (String)
+- `ciphertextBase64`: Base64-encoded `EncryptedVaultKey`
+- `nonceBase64`: Base64-encoded 96-bit AES-GCM IV
+- `pqcEncapsulationBase64`: Base64-encoded ML-KEM-768 ciphertext (1,088 bytes)
+
+### 8.6 Device Revocation & Nuclear Self-Destruct
+- **Revocation**: Removing a device's `KeyEnvelope` from `VaultManifest` increments `keyEpoch` and re-signs the manifest with ML-DSA-65.
+- **Nuclear Self-Destruct Protocol**: When a client evaluates the cloud `VaultManifest` during unlock or sync initialization and discovers its device ID has been revoked, it halts all operations and executes `triggerNuclearWipe()`, purging RAM keys (`fillZero`), local databases, and hardware keys.
+
+### 8.7 Standalone CLI Recovery (`SinoDecryptorCLI`)
+Privacy auditors and users can recover encrypted blobs on Linux, macOS, or Windows using the standalone SDK CLI:
+```bash
+java -cp sino-open-sdk.jar com.sino.sdk.cli.SinoDecryptorCLI --pqc <manifest_file> <device_id> <b64_mlkem_privkey> <input_file> <output_file> <file_id> <base64_iv> [b64_mldsa_pubkey]
+```
