@@ -31,6 +31,7 @@ to ensure that:
 
 - **[`SPECIFICATION.md`](SPECIFICATION.md)**: Formal open specification for
   Sino's 4-tier key hierarchy, path salting, 1MB chunked GCM streaming, and **Post-Quantum Cryptography (PQC v1) Protocol Architecture**.
+- **[`SECURITY.md`](SECURITY.md)**: Responsible vulnerability disclosure process, PGP public key coordinates, response SLAs, and security scope matrix.
 - **`crypto/AESEncryptionEngine.kt`**: Implementation of AES-256-GCM, including
   **Encryption v2 (Protocol v3)** with standardized big-endian counter nonces.
 - **`crypto/HKDFEngine.kt`**: Implementation of **domain-separated HKDF-SHA-512** for vault key (`SINO/V1/VAULT`) and per-file DEK (`SINO/V1/FILE/`) derivation.
@@ -164,7 +165,7 @@ a hardened foundation for personal digital sovereignty.
 ## ⚖️ License & Contributions
 
 This SDK is released under the MIT License. We welcome peer reviews and security
-audits.
+audits. For vulnerability disclosure guidelines and bug bounty reporting, see [SECURITY.md](SECURITY.md).
 
 ---
 
