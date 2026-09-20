@@ -17,7 +17,9 @@ class VaultMigrationEngine(
         existingVaultKey: ByteArray,
         deviceId: String,
         deviceMlKemPublicKey: ByteArray,
-        signerPrivateKey: ByteArray
+        signerPrivateKey: ByteArray,
+        deviceName: String? = null,
+        deviceType: String? = null
     ): MigrationResult {
         if (manifest.cryptoSuite == "SINO-VAULT-V1-AES256GCM-HKDFSHA512-MLKEM768") {
             return MigrationResult(isMigrated = false, updatedManifest = manifest)
@@ -26,7 +28,9 @@ class VaultMigrationEngine(
         val envelope = deviceKeyManager.createDeviceEnvelope(
             deviceId = deviceId,
             vaultKey = existingVaultKey,
-            mlKemPublicKey = deviceMlKemPublicKey
+            mlKemPublicKey = deviceMlKemPublicKey,
+            deviceName = deviceName,
+            deviceType = deviceType
         )
 
         val updatedEnvelopes = manifest.keyEnvelopes.filterNot { it.keyId == deviceId } + envelope

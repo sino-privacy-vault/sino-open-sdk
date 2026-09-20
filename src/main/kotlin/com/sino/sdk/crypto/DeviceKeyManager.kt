@@ -12,7 +12,9 @@ class DeviceKeyManager(
     fun createDeviceEnvelope(
         deviceId: String,
         vaultKey: ByteArray,
-        mlKemPublicKey: ByteArray
+        mlKemPublicKey: ByteArray,
+        deviceName: String? = null,
+        deviceType: String? = null
     ): KeyEnvelope {
         val (ciphertext, sharedSecret) = mlKemEngine.encapsulate(mlKemPublicKey)
         val iv = encryptionEngine.generateIV()
@@ -26,6 +28,8 @@ class DeviceKeyManager(
             version = 1,
             cryptoSuite = "SINO-VAULT-V1-AES256GCM-HKDFSHA512-MLKEM768",
             keyId = deviceId,
+            deviceName = deviceName,
+            deviceType = deviceType,
             ciphertextBase64 = Base64.getEncoder().encodeToString(encryptedVaultKey),
             nonceBase64 = Base64.getEncoder().encodeToString(iv),
             authTagBase64 = "",

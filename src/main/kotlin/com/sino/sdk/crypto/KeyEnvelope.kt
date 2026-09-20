@@ -9,6 +9,8 @@ data class KeyEnvelope(
     val version: Int = 1,
     val cryptoSuite: String = "SINO-VAULT-V1-AES256GCM-HKDFSHA512-MLKEM768",
     val keyId: String,
+    val deviceName: String? = null,
+    val deviceType: String? = null,
     val ciphertextBase64: String,
     val nonceBase64: String,
     val authTagBase64: String,
