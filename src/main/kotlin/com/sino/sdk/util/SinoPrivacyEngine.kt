@@ -20,7 +20,7 @@ class SinoPrivacyEngine {
         "MEGA_SESSION" to "\\bsid:[a-zA-Z0-9_-]{40,}\\b",
         "SENSITIVE_ID" to "[a-fA-F0-9]{32,}",
         "HASH_PATH" to "[a-fA-F0-9]{16}",
-        "MEGA_HANDLE" to "\\b[a-zA-Z0-9_-]{8,11}\\b",
+        "MEGA_HANDLE" to "\\b(?=.*[0-9_-])[a-zA-Z0-9_-]{8,11}\\b",
         "FILE_NAME" to "\\b[\\w-]+\\.(?i:jpe?g|png|webp|mp4|mkv|mov|pdf|zip|7z|tmp|enc|batch|meta|sino|json|bin|public)\\b",
         "FILE_PATH" to "(?:/[\\w.-]+){2,}",
         "SECURITY_ARTIFACT" to "security/[^\\s\"'}]+",
