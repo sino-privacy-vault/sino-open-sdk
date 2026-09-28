@@ -174,16 +174,24 @@ class AESEncryptionEngine : EncryptionEngine {
             val chunkIndex = currentPlaintextPos / chunkSize
             val requiredStreamPos = chunkIndex * encryptedChunkSize.toLong()
 
-            // ELITE: Self-Seeking Logic
+            // ELITE: Self-Seeking Logic (Hardened against zero-returning InputStream.skip)
             if (currentStreamPos < requiredStreamPos) {
                 val toSkip = requiredStreamPos - currentStreamPos
                 var skipped = 0L
                 while (skipped < toSkip) {
                     val res = inputStream.skip(toSkip - skipped)
-                    if (res <= 0) break
-                    skipped += res
+                    if (res <= 0) {
+                        // FALLBACK: On non-blocking or chunked streams where skip returns <= 0, read into scratch buffer
+                        val scratchSize = kotlin.math.min(4096L, toSkip - skipped).toInt()
+                        val scratch = ByteArray(scratchSize)
+                        val readBytes = inputStream.read(scratch, 0, scratchSize)
+                        if (readBytes == -1) break // True EOF
+                        skipped += readBytes
+                    } else {
+                        skipped += res
+                    }
                 }
-                currentStreamPos = requiredStreamPos
+                currentStreamPos += skipped
             }
 
             val currentIv = incrementIV(iv, chunkIndex, version)
@@ -214,7 +222,7 @@ class AESEncryptionEngine : EncryptionEngine {
         }
     }
 
-    private fun incrementIV(baseIv: ByteArray, counter: Long, version: Int): ByteArray {
+    fun incrementIV(baseIv: ByteArray, counter: Long, version: Int): ByteArray {
         if (counter > 0xFFFFFFFFL) throw IllegalArgumentException("Nonce Overflow")
         
         val iv = baseIv.copyOf()
