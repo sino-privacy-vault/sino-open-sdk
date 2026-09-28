@@ -147,4 +147,50 @@ class AESEncryptionEngineTest {
             return toRead
         }
     }
+
+    @Test
+    fun `test decryptRange robustness when skip returns zero on non-blocking stream`() {
+        val chunkSize = 100
+        val originalData = ByteArray(500) { (it % 256).toByte() }
+        val key = engine.generateDEK()
+        val iv = engine.generateIV()
+
+        val inputStream = ByteArrayInputStream(originalData)
+        val encryptedOutputStream = ByteArrayOutputStream()
+        engine.encryptChunked(inputStream, encryptedOutputStream, key, iv, chunkSize = chunkSize)
+        
+        val encryptedData = encryptedOutputStream.toByteArray()
+
+        val zeroSkipIn = ZeroSkipInputStream(encryptedData)
+        val decryptedOutputStream = ByteArrayOutputStream()
+        
+        engine.decryptRange(
+            inputStream = zeroSkipIn,
+            outputStream = decryptedOutputStream,
+            key = key,
+            iv = iv,
+            startByte = 350L,
+            length = 50L,
+            totalSize = originalData.size.toLong(),
+            chunkSize = chunkSize,
+            streamOffset = 0L
+        )
+
+        val decryptedData = decryptedOutputStream.toByteArray()
+        val expectedSlice = originalData.sliceArray(350 until 400)
+        assertTrue(expectedSlice.contentEquals(decryptedData), "decryptRange failed to fall back to scratch buffer when skip() returned 0.")
+    }
+
+    private class ZeroSkipInputStream(val data: ByteArray) : java.io.InputStream() {
+        private var position = 0
+        override fun read(): Int = if (position < data.size) data[position++].toInt() and 0xFF else -1
+        override fun skip(n: Long): Long = 0L
+        override fun read(b: ByteArray, off: Int, len: Int): Int {
+            if (position >= data.size) return -1
+            val toRead = kotlin.math.min(len, data.size - position)
+            System.arraycopy(data, position, b, off, toRead)
+            position += toRead
+            return toRead
+        }
+    }
 }

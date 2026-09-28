@@ -1,21 +1,33 @@
 package com.sino.sdk.cli
 
 import com.sino.sdk.crypto.*
+import java.io.BufferedReader
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.io.InputStreamReader
 import java.util.Base64
+import java.util.Scanner
 
 /**
  * Standalone Desktop CLI Decryptor for Sino Encrypted Blobs with PQC v1 Support.
  * Allows privacy auditors and users to recover their encrypted files on any
  * Linux/macOS/Windows desktop environment independently of the mobile application.
  *
- * Modes:
- *   1. Direct DEK/IV Mode:
+ * Secure Key Modes:
+ *   1. Secure Key File Mode (Recommended):
+ *      java -cp sino-open-sdk.jar com.sino.sdk.cli.SinoDecryptorCLI <input_file> <output_file> --key-file <key_file_path> [is_chunked] [version]
+ *
+ *   2. Secure Stdin Pipe Mode:
+ *      java -cp sino-open-sdk.jar com.sino.sdk.cli.SinoDecryptorCLI <input_file> <output_file> --key-stdin [is_chunked] [version]
+ *
+ *   3. Interactive Masked Prompt Mode:
+ *      java -cp sino-open-sdk.jar com.sino.sdk.cli.SinoDecryptorCLI <input_file> <output_file> [is_chunked] [version]
+ *
+ *   4. Direct Arguments (Deprecated / Security Warning):
  *      java -cp sino-open-sdk.jar com.sino.sdk.cli.SinoDecryptorCLI <input_file> <output_file> <base64_dek> <base64_iv> [is_chunked] [version]
  *
- *   2. PQC v1 Manifest Mode:
+ *   5. PQC v1 Manifest Mode:
  *      java -cp sino-open-sdk.jar com.sino.sdk.cli.SinoDecryptorCLI --pqc <manifest_file> <device_id> <b64_mlkem_privkey> <input_file> <output_file> <file_id> <base64_iv> [b64_mldsa_pubkey]
  */
 object SinoDecryptorCLI {
@@ -34,8 +46,8 @@ object SinoDecryptorCLI {
             return
         }
 
-        if (args.size < 4) {
-            println("Error: Insufficient arguments.")
+        if (args.size < 2) {
+            println("Error: Insufficient arguments. Minimum requires <input_file> <output_file>.")
             printUsage()
             return
         }
@@ -44,19 +56,20 @@ object SinoDecryptorCLI {
     }
 
     private fun printUsage() {
-        println("Usage (Direct Mode):")
-        println("  java -cp sino-open-sdk.jar com.sino.sdk.cli.SinoDecryptorCLI <input_file> <output_file> <base64_dek> <base64_iv> [is_chunked] [version]")
-        println("Usage (PQC v1 Mode):")
-        println("  java -cp sino-open-sdk.jar com.sino.sdk.cli.SinoDecryptorCLI --pqc <manifest_file> <device_id> <b64_mlkem_privkey> <input_file> <output_file> <file_id> <base64_iv> [b64_mldsa_pubkey]")
+        println("Usage Options:")
+        println("  1. Secure Key File (Recommended):")
+        println("     java -cp sino-open-sdk.jar com.sino.sdk.cli.SinoDecryptorCLI <input_file> <output_file> --key-file <key_file_path> [is_chunked] [version]")
+        println("  2. Secure Stdin Pipe:")
+        println("     java -cp sino-open-sdk.jar com.sino.sdk.cli.SinoDecryptorCLI <input_file> <output_file> --key-stdin [is_chunked] [version]")
+        println("  3. Interactive Masked Prompt:")
+        println("     java -cp sino-open-sdk.jar com.sino.sdk.cli.SinoDecryptorCLI <input_file> <output_file> [is_chunked] [version]")
+        println("  4. PQC v1 Manifest Mode:")
+        println("     java -cp sino-open-sdk.jar com.sino.sdk.cli.SinoDecryptorCLI --pqc <manifest_file> <device_id> <b64_mlkem_privkey> <input_file> <output_file> <file_id> <base64_iv> [b64_mldsa_pubkey]")
     }
 
     private fun handleDirectMode(args: Array<String>) {
         val inputFilePath = args[0]
         val outputFilePath = args[1]
-        val base64Dek = args[2]
-        val base64Iv = args[3]
-        val isChunked = args.getOrNull(4)?.toBoolean() ?: true
-        val encryptionVersion = args.getOrNull(5)?.toIntOrNull() ?: 1
 
         val inputFile = File(inputFilePath)
         val outputFile = File(outputFilePath)
@@ -66,15 +79,69 @@ object SinoDecryptorCLI {
             return
         }
 
+        var dekChars: CharArray? = null
+        var ivChars: CharArray? = null
+        var isChunked = true
+        var encryptionVersion = 1
+
+        val remainingArgs = args.drop(2)
         try {
-            val dekChars = base64Dek.toCharArray()
-            val ivChars = base64Iv.toCharArray()
+            when {
+                remainingArgs.contains("--key-file") || remainingArgs.contains("-k") -> {
+                    val keyFileIdx = if (remainingArgs.indexOf("--key-file") != -1) remainingArgs.indexOf("--key-file") else remainingArgs.indexOf("-k")
+                    val keyFilePath = remainingArgs.getOrNull(keyFileIdx + 1)
+                        ?: run {
+                            println("Error: Missing key file path after --key-file.")
+                            return
+                        }
+                    val keyFile = File(keyFilePath)
+                    if (!keyFile.exists()) {
+                        println("Error: Key file does not exist: $keyFilePath")
+                        return
+                    }
+                    val keys = readKeysFromFile(keyFile)
+                    dekChars = keys.first
+                    ivChars = keys.second
+                    
+                    val flags = remainingArgs.filterIndexed { index, _ -> index != keyFileIdx && index != keyFileIdx + 1 }
+                    isChunked = flags.getOrNull(0)?.toBoolean() ?: true
+                    encryptionVersion = flags.getOrNull(1)?.toIntOrNull() ?: 1
+                }
+                remainingArgs.contains("--key-stdin") -> {
+                    println("Reading Base64 DEK and IV from stdin...")
+                    val keys = readKeysFromStdin()
+                    dekChars = keys.first
+                    ivChars = keys.second
+
+                    val flags = remainingArgs.filter { it != "--key-stdin" }
+                    isChunked = flags.getOrNull(0)?.toBoolean() ?: true
+                    encryptionVersion = flags.getOrNull(1)?.toIntOrNull() ?: 1
+                }
+                remainingArgs.size >= 2 && !remainingArgs[0].startsWith("-") -> {
+                    println("[SECURITY WARNING] Passing secret keys as CLI positional arguments exposes them in process listings (ps) and shell history.")
+                    println("                  Consider using --key-file, --key-stdin, or interactive prompt mode instead.")
+                    dekChars = remainingArgs[0].toCharArray()
+                    ivChars = remainingArgs[1].toCharArray()
+                    isChunked = remainingArgs.getOrNull(2)?.toBoolean() ?: true
+                    encryptionVersion = remainingArgs.getOrNull(3)?.toIntOrNull() ?: 1
+                }
+                else -> {
+                    println("Prompting for secret key credentials interactively...")
+                    val keys = readKeysInteractively()
+                    dekChars = keys.first
+                    ivChars = keys.second
+                    isChunked = remainingArgs.getOrNull(0)?.toBoolean() ?: true
+                    encryptionVersion = remainingArgs.getOrNull(1)?.toIntOrNull() ?: 1
+                }
+            }
+
+            if (dekChars.isEmpty() || ivChars.isEmpty()) {
+                println("Error: DEK or IV credentials could not be read.")
+                return
+            }
 
             val dek = SecurityUtils.fromBase64(dekChars)
             val iv = SecurityUtils.fromBase64(ivChars)
-
-            SecurityUtils.fillZero(dekChars)
-            SecurityUtils.fillZero(ivChars)
 
             val engine = AESEncryptionEngine()
 
@@ -97,6 +164,56 @@ object SinoDecryptorCLI {
         } catch (e: Exception) {
             println("DECRYPTION FAILED: ${e.message}")
             e.printStackTrace()
+        } finally {
+            dekChars?.let { SecurityUtils.fillZero(it) }
+            ivChars?.let { SecurityUtils.fillZero(it) }
+        }
+    }
+
+    private fun readKeysFromFile(keyFile: File): Pair<CharArray, CharArray> {
+        val lines = keyFile.readLines().map { it.trim() }.filter { it.isNotEmpty() && !it.startsWith("#") }
+        var dek: String? = null
+        var iv: String? = null
+
+        for (line in lines) {
+            when {
+                line.startsWith("DEK=") || line.startsWith("dek=") -> dek = line.substringAfter("=").trim()
+                line.startsWith("IV=") || line.startsWith("iv=") -> iv = line.substringAfter("=").trim()
+            }
+        }
+
+        if (dek == null && lines.isNotEmpty()) dek = lines[0]
+        if (iv == null && lines.size > 1) iv = lines[1]
+
+        return Pair(
+            dek?.toCharArray() ?: CharArray(0),
+            iv?.toCharArray() ?: CharArray(0)
+        )
+    }
+
+    private fun readKeysFromStdin(): Pair<CharArray, CharArray> {
+        val reader = BufferedReader(InputStreamReader(System.`in`))
+        val dekLine = reader.readLine()?.trim() ?: ""
+        val ivLine = reader.readLine()?.trim() ?: ""
+        return Pair(
+            dekLine.substringAfter("DEK=").trim().toCharArray(),
+            ivLine.substringAfter("IV=").trim().toCharArray()
+        )
+    }
+
+    private fun readKeysInteractively(): Pair<CharArray, CharArray> {
+        val console = System.console()
+        return if (console != null) {
+            val dekChars = console.readPassword("Enter Base64 DEK: ")
+            val ivChars = console.readPassword("Enter Base64 IV: ")
+            Pair(dekChars, ivChars)
+        } else {
+            val scanner = Scanner(System.`in`)
+            print("Enter Base64 DEK: ")
+            val dek = scanner.nextLine().trim()
+            print("Enter Base64 IV: ")
+            val iv = scanner.nextLine().trim()
+            Pair(dek.toCharArray(), iv.toCharArray())
         }
     }
 

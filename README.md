@@ -71,16 +71,31 @@ macOS, Windows):
 Users can recover and decrypt their Sino files on any desktop operating system
 independently of the official application binaries.
 
-#### A. Direct DEK / IV Mode
+#### A. Secure Key File Mode (Recommended)
 ```bash
-# Syntax
-java -cp build/libs/sino-open-sdk-3.2.0.jar com.sino.sdk.cli.SinoDecryptorCLI <input_file> <output_file> <base64_dek> <base64_iv> [is_chunked] [encryption_version]
+# Store keys securely in a protected key file (keys.txt: DEK=... / IV=...)
+java -cp build/libs/sino-open-sdk-3.2.0.jar com.sino.sdk.cli.SinoDecryptorCLI <input_file> <output_file> --key-file <key_file_path> [is_chunked] [encryption_version]
 
 # Example
-java -cp build/libs/sino-open-sdk-3.2.0.jar com.sino.sdk.cli.SinoDecryptorCLI video.enc video.mp4 K7aB...== Iv9x...== true 1
+java -cp build/libs/sino-open-sdk-3.2.0.jar com.sino.sdk.cli.SinoDecryptorCLI video.enc video.mp4 --key-file keys.txt
 ```
 
-#### B. PQC v1 Vault Manifest Mode
+#### B. Secure Stdin Pipe Mode
+```bash
+# Pipe DEK and IV via standard input to prevent shell history leaks
+java -cp build/libs/sino-open-sdk-3.2.0.jar com.sino.sdk.cli.SinoDecryptorCLI <input_file> <output_file> --key-stdin
+
+# Example
+echo -e "K7aB...==\nIv9x...==" | java -cp build/libs/sino-open-sdk-3.2.0.jar com.sino.sdk.cli.SinoDecryptorCLI video.enc video.mp4 --key-stdin
+```
+
+#### C. Interactive Masked Prompt Mode
+```bash
+# Prompt for secret keys interactively with masked password entry
+java -cp build/libs/sino-open-sdk-3.2.0.jar com.sino.sdk.cli.SinoDecryptorCLI <input_file> <output_file>
+```
+
+#### D. PQC v1 Vault Manifest Mode
 ```bash
 # Syntax
 java -cp build/libs/sino-open-sdk-3.2.0.jar com.sino.sdk.cli.SinoDecryptorCLI --pqc <manifest_file> <device_id> <b64_mlkem_privkey> <input_file> <output_file> <file_id> <base64_iv> [b64_mldsa_pubkey]

@@ -48,9 +48,9 @@ For large files and direct cloud media streaming:
 Sino converts human-readable filenames and relative folder paths into opaque, un-linkable cloud object keys using **Salted HMAC-SHA256**. To ensure forensic privacy and filesystem compatibility, these hashes are truncated according to the **RAID Discovery Standard**:
 
 ### 3.1 Standard Truncation Lengths
-- **Cloud Folders**: HMAC-SHA256 hash of the relative path, truncated to **16 characters** (hex).
-- **Deterministic Filenames**: HMAC-SHA256 hash of the file checksum, truncated to **16 characters** (hex).
-- **Metadata Batch Names**: HMAC-SHA256 hash of the logical identifier, truncated to **12 characters** (hex) with a `.batch` suffix.
+- **Cloud Folders**: HMAC-SHA256 hash of the relative path, truncated to **32 characters** (128-bit namespace).
+- **Deterministic Filenames**: HMAC-SHA256 hash of the file checksum, truncated to **32 characters** (128-bit namespace).
+- **Metadata Batch Names**: HMAC-SHA256 hash of the logical identifier, truncated to **32 characters** (128-bit namespace) with a `.batch` suffix.
 
 ### 3.2 Dictionary Attack Defense
 The use of a high-entropy, hardware-wrapped **Vault Salt** ensures that cloud providers cannot perform dictionary attacks (pre-computing hashes of common filenames) to identify user data.
@@ -149,7 +149,11 @@ Each `KeyEnvelope` contains:
 - **Nuclear Self-Destruct Protocol**: When a client evaluates the cloud `VaultManifest` during unlock or sync initialization and discovers its device ID has been revoked, it halts all operations and executes `triggerNuclearWipe()`, purging RAM keys (`fillZero`), local databases, and hardware keys.
 
 ### 8.7 Standalone CLI Recovery (`SinoDecryptorCLI`)
-Privacy auditors and users can recover encrypted blobs on Linux, macOS, or Windows using the standalone SDK CLI:
+Privacy auditors and users can recover encrypted blobs on Linux, macOS, or Windows using the standalone SDK CLI with secure key passing options (`--key-file`, `--key-stdin`, or interactive masked prompt):
 ```bash
+# Secure key file mode
+java -cp sino-open-sdk.jar com.sino.sdk.cli.SinoDecryptorCLI <input_file> <output_file> --key-file <key_file_path>
+
+# PQC v1 manifest recovery
 java -cp sino-open-sdk.jar com.sino.sdk.cli.SinoDecryptorCLI --pqc <manifest_file> <device_id> <b64_mlkem_privkey> <input_file> <output_file> <file_id> <base64_iv> [b64_mldsa_pubkey]
 ```
