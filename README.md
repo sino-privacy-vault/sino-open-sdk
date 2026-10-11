@@ -1,188 +1,118 @@
 # Sino Privacy Vault Open Security SDK
 
-Welcome to the official security core of **Sino**.
+Sino is a privacy-first encryption layer on top of your existing cloud storage. This repository is its open
+security core:
 
-Sino is a privacy-first encryption layer designed to sit on top of your existing
-cloud storage. This repository contains the reference implementation of our
-**Zero-Knowledge Architecture**, including our **Post-Quantum Cryptography (PQC v1)** protocol. By open-sourcing these core components, we
-provide the community and security researchers with the means to verify our
-privacy claims.
+- **The specification.** [`SPECIFICATION.md`](SPECIFICATION.md) describes exactly what Sino stores in your cloud
+  accounts and how it is encrypted.
+- **An independent implementation.** The SDK reads and verifies that data with no dependency on the Sino apps.
+- **A recovery tool.** With your 24-word recovery phrase and a downloaded copy of your cloud folder, you can decrypt
+  every file without Sino.
 
----
+The tests recover a vault written by Sino's own code, so the specification, this SDK and the apps cannot silently
+disagree.
 
-## 🛡️ The Sino Trust Mandate
-
-We believe that in the realm of privacy, **if it is not verifiable, it is not
-secure.**
-
-This SDK includes the actual cryptographic engines used by the Sino application
-to ensure that:
-
-1. All encryption happens locally on your device before network transmission.
-2. Only you—not Sino, not cloud providers, and not any third party—hold the keys
-   to your data.
-3. Cloud providers are treated as "dumb storage," remaining completely blind to
-   your filenames, structures, and content.
-4. Your data is protected against future quantum computing decryption threats (e.g., Shor's algorithm) via NIST FIPS 203 & 204 post-quantum standards.
+> **If it is not verifiable, it is not secure.** Everything is encrypted on your device before upload. Cloud
+> providers see only opaque names and ciphertext, and only your recovery phrase or your unlocked devices can open
+> the vault.
 
 ---
 
-## 📂 Included Components & Specifications
+## Recover your files without the Sino apps
 
-- **[`SPECIFICATION.md`](SPECIFICATION.md)**: Formal open specification for
-  Sino's 4-tier key hierarchy, path salting, 1MB chunked GCM streaming, and **Post-Quantum Cryptography (PQC v1) Protocol Architecture**.
-- **[`SECURITY.md`](SECURITY.md)**: Responsible vulnerability disclosure process, PGP public key coordinates, response SLAs, and security scope matrix.
-- **`crypto/AESEncryptionEngine.kt`**: Implementation of AES-256-GCM, including
-  **Encryption v2 (Protocol v3)** with standardized big-endian counter nonces.
-- **`crypto/HKDFEngine.kt`**: Implementation of **domain-separated HKDF-SHA-512** for vault key (`SINO/V1/VAULT`) and per-file DEK (`SINO/V1/FILE/`) derivation.
-- **`crypto/MLKEMEngine.kt`**: Implementation of **NIST FIPS 203 ML-KEM-768** post-quantum key encapsulation mechanism.
-- **`crypto/MLDSAEngine.kt`**: Implementation of **NIST FIPS 204 ML-DSA-65** post-quantum digital signatures for signing vault manifests.
-- **`crypto/DeviceKeyManager.kt`**: Multi-device key envelope (`KeyEnvelope`) creation, AES-256-GCM + ML-KEM shared secret unwrapping, and device revocation filtering.
-- **`crypto/VaultMigrationEngine.kt`**: Auto-migration engine upgrading legacy vault manifests to PQC v1 headers (`SINO-VAULT-V1-AES256GCM-HKDFSHA512-MLKEM768`).
-- **`crypto/SinoKeyDerivation.kt`**: Implementation of **Argon2id** (64MB RAM, 3
-  iterations, 4 parallelism threads) for high-entropy key derivation.
-- **`crypto/CloudPathHasher.kt`**: HMAC-SHA256 path anonymizer implementing
-  standardized RAID truncation (16/12 characters) for complete "Cloud Blindness".
-- **`crypto/DuressKeyDerivation.kt`**: Domain-separated key derivation
-  specification for dual-vault decoy key isolation.
-- **`cli/SinoDecryptorCLI.kt`**: Standalone desktop CLI recovery runner supporting direct DEK mode and PQC v1 manifest recovery (`--pqc`).
-- **`cloud/CloudClient.kt`**: Interface defining our "Blind Cloud" protocol.
-- **`crypto/KeyEnvelope.kt`**: Versioned `KeyEnvelope` and `VaultManifest` serializable data models.
+1. **Download your vault.** From each cloud provider you used (MEGA, Google Drive, S3), download the `SinoVault`
+   folder. One provider is enough if it holds everything. Give several and the tool merges them and fills gaps.
+2. **Build the tool.** You need a Java 17+ JDK:
+   ```bash
+   ./gradlew recoveryJar        # builds build/libs/sino-recovery-4.0.0.jar (self-contained)
+   ```
+3. **Recover:**
+   ```bash
+   java -jar build/libs/sino-recovery-4.0.0.jar recover \
+       --vault ~/Downloads/mega/SinoVault --vault ~/Downloads/drive/SinoVault --out ~/Recovered
+   ```
+   You are asked for the recovery phrase with the input hidden. You can instead use `--phrase-file <file>`, or
+   `--phrase-stdin` to pipe it in. The phrase is never accepted as an argument, where it would land in shell
+   history and process listings.
 
----
+Other commands:
 
-## 🚀 Usage Instructions
+| Command | What it does |
+| --- | --- |
+| `list --vault <dir> …` | Lists every file, how many provider copies exist and whether it is in the trash. |
+| `verify-manifest --vault <dir> …` | Verifies the vault's signed device list (ML-DSA-65) and shows the enrolled and revoked devices. |
+| `recover … --include-trashed` | Also recovers files that are in Sino's trash. |
 
-### 1. Building the SDK Jar & Running Tests
+What recovery guarantees:
 
-To compile the SDK and execute the unit test suite on any platform (Linux,
-macOS, Windows):
+- It makes no network connections.
+- It never overwrites files that already exist.
+- Each file is checked against the checksum recorded when it was encrypted, and any modified byte fails
+  authentication. A damaged copy is discarded and another provider's copy is used, so you never get a corrupted
+  file silently.
+- Metadata batches that were moved or tampered with are reported and ignored. Names that could escape the output
+  folder are refused.
+- Exit codes: `0` everything recovered, `1` some files failed (listed), `2` the vault could not be opened.
 
-```bash
-# Run unit test suite
-./gradlew test
-
-# Package the standalone JAR artifact
-./gradlew jar
-```
-
-### 2. Standalone Desktop File Recovery (CLI)
-
-Users can recover and decrypt their Sino files on any desktop operating system
-independently of the official application binaries.
-
-#### A. Secure Key File Mode (Recommended)
-```bash
-# Store keys securely in a protected key file (keys.txt: DEK=... / IV=...)
-java -cp build/libs/sino-open-sdk-3.2.0.jar com.sino.sdk.cli.SinoDecryptorCLI <input_file> <output_file> --key-file <key_file_path> [is_chunked] [encryption_version]
-
-# Example
-java -cp build/libs/sino-open-sdk-3.2.0.jar com.sino.sdk.cli.SinoDecryptorCLI video.enc video.mp4 --key-file keys.txt
-```
-
-#### B. Secure Stdin Pipe Mode
-```bash
-# Pipe DEK and IV via standard input to prevent shell history leaks
-java -cp build/libs/sino-open-sdk-3.2.0.jar com.sino.sdk.cli.SinoDecryptorCLI <input_file> <output_file> --key-stdin
-
-# Example
-echo -e "K7aB...==\nIv9x...==" | java -cp build/libs/sino-open-sdk-3.2.0.jar com.sino.sdk.cli.SinoDecryptorCLI video.enc video.mp4 --key-stdin
-```
-
-#### C. Interactive Masked Prompt Mode
-```bash
-# Prompt for secret keys interactively with masked password entry
-java -cp build/libs/sino-open-sdk-3.2.0.jar com.sino.sdk.cli.SinoDecryptorCLI <input_file> <output_file>
-```
-
-#### D. PQC v1 Vault Manifest Mode
-```bash
-# Syntax
-java -cp build/libs/sino-open-sdk-3.2.0.jar com.sino.sdk.cli.SinoDecryptorCLI --pqc <manifest_file> <device_id> <b64_mlkem_privkey> <input_file> <output_file> <file_id> <base64_iv> [b64_mldsa_pubkey]
-
-# Example
-java -cp build/libs/sino-open-sdk-3.2.0.jar com.sino.sdk.cli.SinoDecryptorCLI --pqc manifest.json device-01 mlkemKey...== doc.enc doc.pdf 1005 Iv9x...== mldsaKey...==
-```
+Only the real vault can be recovered. The decoy (duress) vault is bound to one device's hardware by design; see
+§9 of the specification.
 
 ---
 
-## 🔐 Programmatic Integration Examples (Kotlin / Java)
+## Components
 
-### A. Post-Quantum Key Encapsulation (ML-KEM-768)
+| Package | Contents |
+| --- | --- |
+| `crypto` | AES-256-GCM with the chunked format 2 (identical to Sino's engine), HKDF-SHA-512, Argon2id, ML-KEM-768 and ML-DSA-65 (BouncyCastle, an independent implementation), device key envelopes, the manifest models, and strict String-free encoders (`SecurityUtils`). |
+| `vault` | The vault format: root-key schedule (`VaultKeys`), recovery backup (`RecoveryKit`), artifact container, cloud layout, metadata batches (decode, placement check, cross-provider merge), manifest verification and `VaultRecovery`. |
+| `cli` | The recovery tool (`SinoDecryptorCLI`). |
+| `util` | Sino's log sanitizer (`SinoPrivacyEngine`), the same rules the apps apply before anything is written to a log. |
+
+Dependencies: BouncyCastle (`bcprov`) and kotlinx-serialization. There are no cloud SDKs and no network code.
+
+## Programmatic use (Kotlin)
 
 ```kotlin
-import com.sino.sdk.crypto.MLKEMEngine
+import com.sino.sdk.vault.RecoveryKit
+import com.sino.sdk.vault.VaultRecovery
+import java.io.File
 
-val mlKem = MLKEMEngine()
-val keyPair = mlKem.generateKeyPair()
-
-// Encapsulate shared secret using device's ML-KEM-768 public key
-val (ciphertext, sharedSecretEnc) = mlKem.encapsulate(keyPair.publicKey)
-
-// Decapsulate shared secret using device's ML-KEM-768 private key
-val sharedSecretDec = mlKem.decapsulate(ciphertext, keyPair.privateKey)
-
-keyPair.zeroize()
+val words = RecoveryKit.splitWords(phraseChars)            // CharArrays; wipe them afterwards
+VaultRecovery.open(listOf(File("mega/SinoVault"), File("drive/SinoVault")), words).use { vault ->
+    vault.index().files.forEach { println("${it.path} (${it.copies.size} copies)") }
+    val report = vault.recover(File("Recovered"))
+    report.failed.forEach { println("FAILED $it") }
+    println(vault.verifyManifest().manifest?.revokedKeyIds)
+}
 ```
 
-### B. Post-Quantum Manifest Digital Signatures (ML-DSA-65)
+Lower-level building blocks:
 
 ```kotlin
-import com.sino.sdk.crypto.MLDSAEngine
+val kem = MLKEMEngine()                                    // FIPS 203
+val device = kem.keyPairFromSeed(seed64)                   // d || z, as Sino keeps it per device
+val (ciphertext, secret) = kem.encapsulate(device.publicKey)
 
-val mlDsa = MLDSAEngine()
-val keyPair = mlDsa.generateKeyPair()
-
-val payload = manifest.toJson().encodeToByteArray()
-val signature = mlDsa.sign(payload, keyPair.privateKey)
-
-val isValid = mlDsa.verify(payload, signature, keyPair.publicKey)
-keyPair.zeroize()
+val dsa = MLDSAEngine()                                    // FIPS 204, pure, empty context
+VaultKeys(rootKey).use { keys ->
+    val verifier = ManifestVerifier.forVault(keys)          // signer and vault id derived from the root key
+    verifier.verifies(VaultManifest.fromJson(json))
+}
 ```
 
-### C. Domain-Separated HKDF-SHA-512 Key Derivation
+## Building and testing
 
-```kotlin
-import com.sino.sdk.crypto.HKDFEngine
-
-val hkdf = HKDFEngine()
-
-// Derive Vault Key from Root Master Key
-val vaultKey = hkdf.deriveVaultKey(rootMasterKey)
-
-// Derive per-file DEK using Vault Key and File ID
-val fileDek = hkdf.deriveFileKey(vaultKey, fileId = 1001L)
+```bash
+./gradlew test          # unit tests, NIST ACVP key-generation vectors, and recovery of a vault written by Sino itself
+./gradlew recoveryJar   # the self-contained recovery tool
 ```
 
----
+The interop fixture (`src/test/resources/fixtures/core-vault`) is regenerated from the Sino repository whenever a
+format changes; see its README.
 
-## 🤖 AI-Augmented Security Auditing
+## Security and license
 
-The development of this SDK and the broader Sino architecture involved the use
-of **Advanced Artificial Intelligence (AI)** as a continuous security auditor.
+See [`SECURITY.md`](SECURITY.md) for responsible disclosure. Released under the MIT License. Peer reviews and audits
+are welcome.
 
-Throughout the implementation phase, AI was utilized to:
-
-- **Resilience Testing**: Perform real-time analysis of cryptographic
-  implementations to ensure adherence to global standards.
-- **Memory Hygiene**: Verify that RAM sanitization logic (e.g.,
-  `SecurityUtils.fillZero`) is consistently applied to prevent forensic data
-  extraction.
-- **Pattern Validation**: Audit the "Cloud Blindness" protocols to ensure no
-  metadata or structural identifiers are leaked to third-party storage
-  providers.
-
-By combining human architectural design with AI-driven auditing, we have created
-a hardened foundation for personal digital sovereignty.
-
----
-
-## ⚖️ License & Contributions
-
-This SDK is released under the MIT License. We welcome peer reviews and security
-audits. For vulnerability disclosure guidelines and bug bounty reporting, see [SECURITY.md](SECURITY.md).
-
----
-
-_For more information on the Sino project, visit
-[Sino Privacy](https://sinosecure.app/privacy)._
+_More about Sino: [Sino Privacy](https://sinosecure.app/privacy)._

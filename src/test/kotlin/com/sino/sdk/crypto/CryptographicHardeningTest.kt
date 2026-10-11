@@ -1,6 +1,8 @@
 package com.sino.sdk.crypto
 
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
@@ -98,29 +100,29 @@ class CryptographicHardeningTest {
     }
 
     @Test
-    fun `test incrementIV counter derivation correctness across chunk boundaries`() {
-        val baseIv = byteArrayOf(1, 2, 3, 4, 5, 6, 7, 8, 0, 0, 0, 0)
-        
-        // Chunk 0 -> last 4 bytes should be [0, 0, 0, 0]
-        val iv0 = aesEngine.incrementIV(baseIv, 0L, version = 2)
-        assertEquals(0, iv0[8].toInt())
-        assertEquals(0, iv0[11].toInt())
+    fun `chunk nonces are the base IV with the big-endian chunk index in bytes 8 to 11`() {
+        // Chunk format v2, as Sino writes it: chunk 256 must open with plain AES-GCM under that nonce.
+        val chunkSize = 16
+        val data = ByteArray(chunkSize * 257 + 5) { (it % 251).toByte() }
+        val key = aesEngine.generateDEK()
+        val baseIv = byteArrayOf(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
+        val out = ByteArrayOutputStream()
+        aesEngine.encryptChunked(ByteArrayInputStream(data), out, key, baseIv, chunkSize = chunkSize)
+        val encrypted = out.toByteArray()
 
-        // Chunk 1 -> last 4 bytes should be [0, 0, 0, 1]
-        val iv1 = aesEngine.incrementIV(baseIv, 1L, version = 2)
-        assertEquals(1, iv1[11].toInt())
-
-        // Chunk 256 -> last 4 bytes should be [0, 0, 1, 0]
-        val iv256 = aesEngine.incrementIV(baseIv, 256L, version = 2)
-        assertEquals(1, iv256[10].toInt())
-        assertEquals(0, iv256[11].toInt())
+        val chunk = encrypted.copyOfRange(256 * (chunkSize + 16), 257 * (chunkSize + 16))
+        val nonce = baseIv.copyOf().also { it[8] = 0; it[9] = 0; it[10] = 1; it[11] = 0 }
+        assertArrayEquals(data.copyOfRange(256 * chunkSize, 257 * chunkSize), aesEngine.decrypt(chunk, key, nonce))
     }
 
-    @Test(expected = IllegalArgumentException::class)
-    fun `test incrementIV throws exception when counter exceeds 32-bit bound`() {
-        val baseIv = aesEngine.generateIV()
-        // Counter exceeding 0xFFFFFFFFL must throw IllegalArgumentException("Nonce Overflow")
-        aesEngine.incrementIV(baseIv, 0x100000000L, version = 2)
+    @Test
+    fun `only 256-bit keys, 96-bit nonces and chunk format 2 are accepted`() {
+        val iv = aesEngine.generateIV()
+        assertThrows(IllegalArgumentException::class.java) { aesEngine.encrypt(ByteArray(1), ByteArray(16), iv) }
+        assertThrows(IllegalArgumentException::class.java) { aesEngine.encrypt(ByteArray(1), aesEngine.generateDEK(), ByteArray(16)) }
+        assertThrows(IllegalArgumentException::class.java) {
+            aesEngine.decryptChunked(ByteArrayInputStream(ByteArray(0)), ByteArrayOutputStream(), aesEngine.generateDEK(), iv, version = 1)
+        }
     }
 
     @Test(expected = Exception::class)
@@ -234,7 +236,7 @@ class CryptographicHardeningTest {
         val vaultKey = ByteArray(32).also { Random().nextBytes(it) }
 
         // Create key envelope for device 1
-        val envelope = deviceManager.createDeviceEnvelope("device-01", deviceKeyPair1.publicKey, vaultKey)
+        val envelope = deviceManager.createDeviceEnvelope(deviceId = "device-01", vaultKey = vaultKey, mlKemPublicKey = deviceKeyPair1.publicKey)
 
         try {
             // Attempting to unwrap envelope using device 2's private key must fail
