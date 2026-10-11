@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "com.sino"
-version = "3.2.1"
+version = "4.0.0"
 
 repositories {
     mavenCentral()
@@ -13,7 +13,6 @@ repositories {
 
 dependencies {
     implementation("org.bouncycastle:bcprov-jdk18on:1.85.2")
-    implementation("com.squareup.okio:okio:3.18.1")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
 
     testImplementation(kotlin("test"))
@@ -33,4 +32,19 @@ kotlin {
 
 tasks.test {
     useJUnit()
+}
+
+// Self-contained recovery tool: `java -jar build/libs/sino-recovery-<version>.jar <command> ...`.
+tasks.register<Jar>("recoveryJar") {
+    group = "build"
+    description = "Builds the standalone recovery CLI with its dependencies."
+    archiveBaseName.set("sino-recovery")
+    manifest { attributes["Main-Class"] = "com.sino.sdk.cli.SinoDecryptorCLI" }
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    from(sourceSets.main.get().output)
+    dependsOn(configurations.runtimeClasspath)
+    from({ configurations.runtimeClasspath.get().filter { it.name.endsWith(".jar") }.map { zipTree(it) } }) {
+        // Dependency signatures do not survive repackaging.
+        exclude("META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA", "META-INF/*.EC", "META-INF/versions/*/module-info.class", "module-info.class")
+    }
 }

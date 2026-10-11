@@ -20,9 +20,8 @@ We provide security patches and cryptographic errata for the following versions:
 
 | Version | Supported | Notes |
 | :--- | :---: | :--- |
-| `3.2.x` | ✅ Yes | Current stable release with Post-Quantum Cryptography (PQC v1) |
-| `3.1.x` | ✅ Yes | Protocol v2 chunked GCM streaming |
-| `< 3.1.0` | ❌ No | Deprecated legacy formats; upgrade recommended |
+| `4.0.x` | ✅ Yes | Current release: reads and recovers real Sino vaults; ML-KEM-768 / ML-DSA-65 via BouncyCastle |
+| `< 4.0.0` | ❌ No | Did not match Sino's vault format and used placeholder ML-KEM / ML-DSA code; do not use |
 
 ---
 
@@ -58,7 +57,7 @@ Please encrypt your report using our official PGP key to protect the details in 
 
 To help us investigate and triage your report promptly, please include:
 
-1. **Component / Module Affected:** Identify the specific engine (e.g., `MLKEMEngine`, `MLDSAEngine`, `AESEncryptionEngine`, `DeviceKeyManager`, `VaultMigrationEngine`, `CloudPathHasher`, `SinoDecryptorCLI`).
+1. **Component / Module Affected:** Identify the specific engine (e.g., `MLKEMEngine`, `MLDSAEngine`, `AESEncryptionEngine`, `DeviceKeyManager`, `VaultRecovery`, `RecoveryKit`, `FolderMetadataBatchCodec`, `SinoDecryptorCLI`).
 2. **Vulnerability Type:** (e.g., key exposure, shared secret bypass, side-channel attack, nonce reuse, memory hygiene failure, path de-anonymization).
 3. **Proof-of-Concept (PoC):** Step-by-step instructions, test vectors, or sample code that demonstrates the vulnerability.
 4. **Impact Assessment:** Explain the practical attack scenario and potential consequences (e.g., local privilege escalation, ciphertext recovery, cloud provider de-anonymization).

@@ -1,0 +1,17 @@
+{
+  "vaultIdentifier": "5e9825cbe74d047cbd32a1d6d00c4f16",
+  "devices": 2,
+  "revoked": "device-96b25e8b-a281-4585-a974-023d4fba6b7f",
+  "phone": "device-91ee4678-4729-434d-97c6-45d5aaef66cb",
+  "files": {
+    "DCIM/Camera/IMG_0001.jpg": "b10e581ef9ffab481bd86b11adb8dc7278cf05fd8626ebc4f379865b227b86f9",
+    "DCIM/Camera/IMG_0002.jpg": "d0672cc603222c9e5348f28a574a87654b6ae523b785682b3f2fcf46a8eb90df",
+    "Docs/Ünïcødé/naïve ✓.txt": "a6745d77670391f486b213eef2a38cf5c7ff62becd7b95217acf1f962a602162",
+    "archive.bin": "eb3cbb7f7d609800af92be10a115947290a34a67b5b3036f3f815a27bd2a6c5b",
+    "notes.txt": "86cc9ec0fbd8f03847ad000080eb70e3278f4c37647d8ebe59866436edfc3f58",
+    "report.pdf": "070fc9fafa90a25ab3eb8efe6160cd9ebc87831c286b8ef50d5b1b77329ed68d"
+  },
+  "trashed": {
+    "DCIM/Camera/trashed.txt": "ceabf4582935c3aaeb3e18e83a38d75bcee75db96d3d8f5dd4bc3cf24b618bd7"
+  }
+}

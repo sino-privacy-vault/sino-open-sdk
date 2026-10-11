@@ -5,7 +5,8 @@ import javax.crypto.spec.SecretKeySpec
 import kotlin.math.min
 
 /**
- * Domain-separated HKDF-SHA-512 engine for sino-open-sdk with memory hygiene.
+ * HKDF-SHA-512 (RFC 5869), identical to Sino's core engine. Sino uses it without a salt and with a domain label as
+ * `info`, e.g. for the recovery KEK and the device envelope keys.
  */
 class HKDFEngine {
 
@@ -26,15 +27,15 @@ class HKDFEngine {
         info: ByteArray,
         outputLength: Int
     ): ByteArray {
-        require(outputLength <= 255 * HASH_LEN) { "HKDF output length too large" }
+        require(outputLength in 1..255 * HASH_LEN) { "Invalid HKDF output length" }
 
-        val realSalt = salt ?: ByteArray(HASH_LEN) { 0 }
+        // Extract: a missing or empty salt is HashLen zeros (RFC 5869); JCA rejects empty HMAC keys.
+        val defaultSalt = salt == null || salt.isEmpty()
+        val realSalt = if (defaultSalt) ByteArray(HASH_LEN) else salt!!
         val prk = try {
             hmacSha512(realSalt, ikm)
         } finally {
-            if (salt == null) {
-                realSalt.fill(0)
-            }
+            if (defaultSalt) realSalt.fill(0)
         }
 
         try {
@@ -45,17 +46,14 @@ class HKDFEngine {
             val n = (outputLength + HASH_LEN - 1) / HASH_LEN
 
             for (i in 1..n) {
-                val macInput = if (tLen == 0) {
-                    info + i.toByte()
-                } else {
-                    t.copyOf(tLen) + info + i.toByte()
-                }
+                val macInput = t.copyOf(tLen) + info + i.toByte()
                 val stepT = hmacSha512(prk, macInput)
-                stepT.copyInto(t, 0, 0, stepT.size)
+                macInput.fill(0)
+                stepT.copyInto(t)
                 tLen = stepT.size
 
                 val copyLen = min(outputLength - loc, HASH_LEN)
-                t.copyInto(okm, loc, 0, copyLen)
+                stepT.copyInto(okm, loc, 0, copyLen)
                 loc += copyLen
                 stepT.fill(0)
             }
@@ -66,13 +64,14 @@ class HKDFEngine {
         }
     }
 
-    fun deriveVaultKey(rootMasterKey: ByteArray): ByteArray {
-        val info = "SINO/V1/VAULT".encodeToByteArray()
-        return extractAndExpand(salt = null, ikm = rootMasterKey, info = info, outputLength = 32)
-    }
-
-    fun deriveFileKey(vaultKey: ByteArray, fileId: Long): ByteArray {
-        val info = "SINO/V1/FILE/$fileId".encodeToByteArray()
-        return extractAndExpand(salt = null, ikm = vaultKey, info = info, outputLength = 32)
+    /** HKDF-SHA-512 without a salt, domain-separated by [info] (Sino's `deriveKey`). */
+    fun derive(secret: ByteArray, info: String, outputLength: Int = 32): ByteArray {
+        require(secret.isNotEmpty()) { "HKDF input key material is empty" }
+        val infoBytes = info.encodeToByteArray()
+        return try {
+            extractAndExpand(null, secret, infoBytes, outputLength)
+        } finally {
+            infoBytes.fill(0)
+        }
     }
 }
