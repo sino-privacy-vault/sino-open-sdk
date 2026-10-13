@@ -85,7 +85,7 @@ class VaultRecovery private constructor(
                         problems += Problem(null, "$where: metadata batch is not where its folder belongs; ignored")
                         continue
                     }
-                    byFolder.getOrPut(batch.folderPath) { mutableListOf() } += batch
+                    byFolder.getOrPut(batch.folderKey) { mutableListOf() } += batch
                 }
             }
         } finally {
@@ -93,9 +93,10 @@ class VaultRecovery private constructor(
         }
 
         val blobNs = VaultCloudLayout.namespace(vaultSalt, VaultCloudLayout.BLOBS)
-        val files = byFolder.toSortedMap().flatMap { (folderPath, batches) ->
-            val merged = FolderMetadataBatchCodec.merge(batches) ?: return@flatMap emptyList()
-            val dir = VaultCloudLayout.folderDirName(vaultSalt, folderPath)
+        // By folder key: a folder keeps its key (and directory) when it is renamed or moved; its path is the newest.
+        val files = byFolder.values.mapNotNull { FolderMetadataBatchCodec.merge(it) }.sortedBy { it.folderPath }.flatMap { merged ->
+            val folderPath = merged.folderPath
+            val dir = merged.folderKey
             merged.files.toSortedMap().mapNotNull { (name, entry) ->
                 val path = if (folderPath.isEmpty()) name else "$folderPath/$name"
                 if (entry.isDuress) {

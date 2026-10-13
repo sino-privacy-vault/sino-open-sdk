@@ -69,8 +69,8 @@ Each provider holds a `SinoVault` folder:
 SinoVault/
   security/   rmk_backup.bin, vault_salt.public, vault_manifest.json
   metadata/<namespace>/<batch>.batch                    batch of the root folder
-  metadata/<namespace>/<folder dir>/<batch>.batch       batch of the folder "DCIM/Camera", ...
-  blobs/<namespace>/[<folder dir>/]<cloud name>.enc     encrypted files (§2)
+  metadata/<namespace>/<folder key>/<batch>.batch       batch of a folder ("DCIM/Camera", ...)
+  blobs/<namespace>/[<folder key>/]<cloud name>.enc     encrypted files (§2)
 ```
 
 All names are lower-case hex of `HMAC-SHA256(vault salt, label)`, truncated as follows:
@@ -78,11 +78,13 @@ All names are lower-case hex of `HMAC-SHA256(vault salt, label)`, truncated as f
 | Name | Label | Length |
 | --- | --- | --- |
 | namespace | `"sino-vault-root:" + "metadata"` or `"…blobs"` | 16 |
-| folder dir | the folder's logical path, e.g. `DCIM/Camera` (none for the root folder) | 32 |
-| batch | `"folder_metadata:" + logical path`, plus `.batch` | 16 |
+| folder key | the folder's logical path when it first reached the clouds, e.g. `DCIM/Camera` (none for the root folder) | 32 |
+| batch | `"folder_metadata:" + folder key`, plus `.batch` | 16 |
 
-Every device derives the same names from the same paths. Cloud names of files are opaque and recorded in the
-batches. The real and decoy vaults have different salts, so their namespaces look alike and cannot be linked.
+Every device derives the same key from the same path, so a folder made on two devices meets in one place. A folder
+keeps its key when it is renamed or moved (its batch records its path now), so a reader takes the key from the batch,
+never from the path. Cloud names of files are opaque and recorded in the batches. The real and decoy vaults have
+different salts, so their namespaces look alike and cannot be linked.
 
 ## 6. Folder metadata batches
 
@@ -92,19 +94,26 @@ A batch is `container(batch key, gzip(JSON))` (§3) of:
 { "folderPath": "DCIM/Camera", "version": 6, "lastUpdated": 0,
   "files":   { "<file name>": <entry> },
   "deleted": { "<file name>": { "version": 2, "checksum": "...", "deletedAt": 0 } },
-  "acks":    { "<device id>": { "version": 6, "at": 0 } } }
+  "acks":    { "<device id>": { "version": 6, "at": 0 } },
+  "folderKey": "<32 hex>", "pathChangedAt": 0, "removedAt": 0 }
 ```
+
+`folderKey` is the folder's directory (§5; empty for the root folder only). `pathChangedAt` is when `folderPath` was
+last set by a rename or move (0: never). `removedAt` is when the folder was deleted (0: it exists); a deleted folder's
+batch lists no live entries.
 
 Each entry carries `originalName`, `relativePath` (the folder), `mimeType`, `size`, `checksum` (SHA-256 of the file
 as added), `encryptedDEK` (§1), `iv` (base64 base nonce), `encryptionVersion` (2), `isChunked` (true),
 `isCompressed`, `cloudChecksum` (§2), `cloudName`, `isTrashed`, `isDuress` (false in the real vault), `timestamp`
 and `providerHints`. Unknown fields are ignored.
 
-- **Placement:** all batches share one key, so a reader must check that the decrypted `folderPath` maps to the
-  directory and batch name it was found under (§5), and must discard batches that do not.
-- **Merge across providers:** sort the copies by `version`. Take the union of the entries, with higher versions
-  winning name conflicts. Keep the newest tombstone per name. An entry survives a tombstone only if a batch newer
-  than the tombstone lists it.
+- **Placement:** all batches share one key, so a reader must check that the decrypted `folderKey` is the directory
+  and maps to the batch name it was found under (§5), that only the root folder's key and path are empty, and must
+  discard batches that do not.
+- **Merge across providers:** group the batches by `folderKey` and sort the copies by `version`. Take the union of
+  the entries, with higher versions winning name conflicts. Keep the newest tombstone per name. An entry survives a
+  tombstone only if a batch newer than the tombstone lists it. The path is the one with the newest `pathChangedAt`
+  (then version); `removedAt` is the highest version's.
 
 ## 7. Device list (`security/vault_manifest.json`)
 

@@ -181,19 +181,20 @@ class CoreVaultInteropTest {
     @Test
     fun `a batch moved to another folder's location is ignored`() {
         val a = copyOf(providerA)
-        // The real vault's metadata namespace is the one with folder directories (camera and docs).
+        // The real vault's metadata namespace is the one with folder directories (camera, docs and a deleted folder).
         val realNs = File(a, "SinoVault/metadata").listFiles()!!.single { ns -> ns.listFiles()!!.any { it.isDirectory } }
-        val (camera, docs) = realNs.listFiles()!!.filter { it.isDirectory }.map { it.listFiles()!!.single() }
-        camera.copyTo(docs, overwrite = true)
+        val batches = realNs.listFiles()!!.filter { it.isDirectory }.map { it.listFiles()!!.single() }
+        assertEquals(3, batches.size)
+        batches.drop(1).forEach { batches.first().copyTo(it, overwrite = true) }
 
         VaultRecovery.open(listOf(a), words()).use { vault ->
             val index = vault.index()
             assertTrue(index.problems.joinToString(), index.problems.any { "not where its folder belongs" in it.message })
-            // Provider A lists 3 root files, 2 camera files and 1 document; the folder whose batch was replaced is
-            // dropped, and the moved batch's files are not listed a second time.
+            // Provider A lists 3 root files, 2 camera files and 1 document; only the folder whose batch was copied
+            // stays, and its files are not listed a second time.
             val paths = index.files.map { it.path }
             assertEquals(paths.distinct(), paths)
-            assertTrue(paths.toString(), paths.size == 4 || paths.size == 5)
+            assertTrue(paths.toString(), paths.size in 3..5)
         }
     }
 

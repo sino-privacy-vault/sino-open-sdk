@@ -9,9 +9,10 @@ import java.io.ByteArrayOutputStream
 import java.util.zip.GZIPInputStream
 import java.util.zip.GZIPOutputStream
 
-/** One logical folder's file list, as every device of the vault publishes it. */
+/** One folder's file list, as every device of the vault publishes it. */
 @Serializable
 data class FolderMetadataBatch(
+    /** The folder's path now (it can change; [folderKey] does not). */
     val folderPath: String,
     /** File name -> entry. */
     val files: Map<String, MediaMetadata>,
@@ -21,6 +22,12 @@ data class FolderMetadataBatch(
     val deleted: Map<String, FileTombstone> = emptyMap(),
     /** Per device: the newest batch version it published. */
     val acks: Map<String, DeviceAck> = emptyMap(),
+    /** The folder's directory name; empty for the root folder only. */
+    val folderKey: String = "",
+    /** When [folderPath] was set (0: never changed); the newest path wins a merge. */
+    val pathChangedAt: Long = 0,
+    /** When the folder was deleted (0: it exists). */
+    val removedAt: Long = 0,
 )
 
 @Serializable
@@ -29,7 +36,7 @@ data class FileTombstone(val version: Long, val checksum: String, val deletedAt:
 @Serializable
 data class DeviceAck(val version: Long, val at: Long)
 
-/** One file. Its ciphertext is `blobs/<namespace>/[<folder dir>/]<cloudName>.enc`. */
+/** One file. Its ciphertext is `blobs/<namespace>/[<folder key>/]<cloudName>.enc`. */
 @Serializable
 data class MediaMetadata(
     val originalName: String,
@@ -90,17 +97,21 @@ object FolderMetadataBatchCodec {
     }
 
     /**
-     * Whether [batch] was found where its own `folderPath` says it belongs. All batches of a vault share one key, so
-     * a batch moved to another folder's location still decrypts; misplaced batches must be discarded.
+     * Whether [batch] was found where its own `folderKey` says it belongs. All batches of a vault share one key, so
+     * a batch moved to another folder's location still decrypts; misplaced batches must be discarded. Only the root
+     * folder has an empty key and an empty path.
      */
-    fun isPlacedAt(salt: ByteArray, batch: FolderMetadataBatch, dirName: String, fileName: String): Boolean =
-        VaultCloudLayout.folderDirName(salt, batch.folderPath) == dirName &&
-            VaultCloudLayout.batchFileName(salt, batch.folderPath) == fileName
+    fun isPlacedAt(salt: ByteArray, batch: FolderMetadataBatch, dirName: String, fileName: String): Boolean {
+        val key = batch.folderKey
+        val wellFormed = if (key.isEmpty()) batch.folderPath.isEmpty() else VaultCloudLayout.isFolderKey(key) && batch.folderPath.isNotEmpty()
+        return wellFormed && key == dirName && VaultCloudLayout.batchFileName(salt, key) == fileName
+    }
 
     /**
      * Sino's union merge of the copies of one folder's batch (one per provider): every entry of every copy is kept
      * (higher versions win name conflicts), and an entry deleted by a tombstone survives only if a batch newer than
-     * the deletion lists it.
+     * the deletion lists it. The path with the newest `pathChangedAt` (then version) wins; `removedAt` is the newest
+     * version's.
      */
     fun merge(batches: List<FolderMetadataBatch>): FolderMetadataBatch? {
         if (batches.isEmpty()) return null
@@ -132,6 +143,10 @@ object FolderMetadataBatchCodec {
             val tombstone = tombstones[name] ?: return@filterKeys true
             (lastSeen[name] ?: 0L) > tombstone.version
         }
-        return ordered.last().copy(files = live, deleted = tombstones, acks = acks, lastUpdated = ordered.maxOf { it.lastUpdated })
+        val newestPath = ordered.maxWith(compareBy<FolderMetadataBatch> { it.pathChangedAt }.thenBy { it.version })
+        return ordered.last().copy(
+            files = live, deleted = tombstones, acks = acks, lastUpdated = ordered.maxOf { it.lastUpdated },
+            folderPath = newestPath.folderPath, pathChangedAt = newestPath.pathChangedAt,
+        )
     }
 }

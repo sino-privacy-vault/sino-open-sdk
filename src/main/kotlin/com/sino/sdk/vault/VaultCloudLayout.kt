@@ -7,13 +7,14 @@ import javax.crypto.spec.SecretKeySpec
 /**
  * Sino's cloud layout. Each provider holds a `SinoVault` folder with:
  * - `security/`: `rmk_backup.bin`, `vault_salt.public` and `vault_manifest.json` (real vault only);
- * - `metadata/<namespace>/[<folder dir>/]<batch name>.batch`: one encrypted metadata batch per logical folder;
- * - `blobs/<namespace>/[<folder dir>/]<cloud name>.enc`: the encrypted files.
+ * - `metadata/<namespace>/[<folder key>/]<batch name>.batch`: one encrypted metadata batch per folder;
+ * - `blobs/<namespace>/[<folder key>/]<cloud name>.enc`: the encrypted files.
  *
  * Every name is an HMAC-SHA256 of the vault salt, truncated to hex: the namespace (16 characters) of
- * `"sino-vault-root:" + type`, a folder directory (32) of the folder's logical path (e.g. `DCIM/Camera`, none for
- * the root folder), and a batch name (16) of `"folder_metadata:" + path`. The real and decoy vaults use different
- * salts, so their namespaces look alike and cannot be linked.
+ * `"sino-vault-root:" + type`, and a batch name (16) of `"folder_metadata:" + folder key`. A folder's key (32, none for
+ * the root folder) is recorded in its batch: Sino derives it from the folder's logical path (e.g. `DCIM/Camera`) when
+ * the folder first reaches the clouds and keeps it when the folder is renamed or moved, so a reader takes it from the
+ * batch. The real and decoy vaults use different salts, so their namespaces look alike and cannot be linked.
  */
 object VaultCloudLayout {
     const val VAULT_FOLDER = "SinoVault"
@@ -34,12 +35,18 @@ object VaultCloudLayout {
     /** The namespace directory of [type] ([BLOBS] or [METADATA]) for the vault owning [salt]. */
     fun namespace(salt: ByteArray, type: String): String = hmacHex(salt, ROOT_DOMAIN + type, NAME_LENGTH)
 
-    /** The directory of a logical folder inside a namespace; empty for the root folder. */
-    fun folderDirName(salt: ByteArray, relativePath: String): String =
+    /**
+     * The key Sino gives a folder at [relativePath] when it first reaches the clouds (its directory inside a namespace);
+     * empty for the root folder. A renamed or moved folder keeps its first key. Used to build test vaults.
+     */
+    fun folderKey(salt: ByteArray, relativePath: String): String =
         if (relativePath.isEmpty()) "" else hmacHex(salt, relativePath, FOLDER_NAME_LENGTH)
 
-    fun batchFileName(salt: ByteArray, relativePath: String): String =
-        hmacHex(salt, BATCH_NAME_LABEL + relativePath, NAME_LENGTH) + BATCH_EXTENSION
+    /** Whether [key] can name a folder directory: 32 lower-case hex characters ("" is the root folder). */
+    fun isFolderKey(key: String): Boolean = key.length == FOLDER_NAME_LENGTH && key.all { it in '0'..'9' || it in 'a'..'f' }
+
+    fun batchFileName(salt: ByteArray, folderKey: String): String =
+        hmacHex(salt, BATCH_NAME_LABEL + folderKey, NAME_LENGTH) + BATCH_EXTENSION
 
     private fun hmacHex(salt: ByteArray, label: String, length: Int): String {
         require(salt.isNotEmpty()) { "Vault salt is missing" }

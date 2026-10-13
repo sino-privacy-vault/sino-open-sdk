@@ -1,13 +1,13 @@
 {
-  "vaultIdentifier": "5e9825cbe74d047cbd32a1d6d00c4f16",
+  "vaultIdentifier": "7fe5d88a0028b18fb58a7383acb4c829",
   "devices": 2,
-  "revoked": "device-96b25e8b-a281-4585-a974-023d4fba6b7f",
-  "phone": "device-91ee4678-4729-434d-97c6-45d5aaef66cb",
+  "revoked": "device-5eda9043-8529-4a32-9f0f-e93e3064358f",
+  "phone": "device-2a251b68-321e-4198-94c8-3778a6d8ee54",
   "files": {
-    "DCIM/Camera/IMG_0001.jpg": "b10e581ef9ffab481bd86b11adb8dc7278cf05fd8626ebc4f379865b227b86f9",
-    "DCIM/Camera/IMG_0002.jpg": "d0672cc603222c9e5348f28a574a87654b6ae523b785682b3f2fcf46a8eb90df",
+    "DCIM/Camera/IMG_0001.jpg": "796ee5e093676bf70af1927b0eebf3c81ddb8d831515b7af93625fa941a01176",
+    "DCIM/Camera/IMG_0002.jpg": "0d6ee0f6e186d56bab29d8f518a892ddaeb858bfe5cddc29a1ad0c8549550a9d",
     "Docs/Ünïcødé/naïve ✓.txt": "a6745d77670391f486b213eef2a38cf5c7ff62becd7b95217acf1f962a602162",
-    "archive.bin": "eb3cbb7f7d609800af92be10a115947290a34a67b5b3036f3f815a27bd2a6c5b",
+    "archive.bin": "f9cb30aca69f2bcf06aa782f924a68e4751967d3092998e2495fa3b2371dcda5",
     "notes.txt": "86cc9ec0fbd8f03847ad000080eb70e3278f4c37647d8ebe59866436edfc3f58",
     "report.pdf": "070fc9fafa90a25ab3eb8efe6160cd9ebc87831c286b8ef50d5b1b77329ed68d"
   },

@@ -51,16 +51,17 @@ class VaultRecoveryHardeningTest {
                 encryptedDEK = keys.wrapDek(dek), iv = SecurityUtils.toBase64(iv).concatToString(), timestamp = 1, isChunked = true,
                 cloudChecksum = sha(plain), cloudName = cloudName,
             ))
-            val blobDir = listOf(root.path, "blobs", VaultCloudLayout.namespace(salt, "blobs"), VaultCloudLayout.folderDirName(salt, folder)).filter { it.isNotEmpty() }
+            val blobDir = listOf(root.path, "blobs", VaultCloudLayout.namespace(salt, "blobs"), VaultCloudLayout.folderKey(salt, folder)).filter { it.isNotEmpty() }
             File(blobDir.joinToString(File.separator), "$cloudName.enc").apply { parentFile.mkdirs(); writeBytes(out.toByteArray()) }
             return entry
         }
 
         fun publish(folder: String, files: Map<String, MediaMetadata>, version: Long = 1) {
-            val dir = listOf(root.path, "metadata", VaultCloudLayout.namespace(salt, "metadata"), VaultCloudLayout.folderDirName(salt, folder)).filter { it.isNotEmpty() }
-            File(dir.joinToString(File.separator), VaultCloudLayout.batchFileName(salt, folder)).apply {
+            val key = VaultCloudLayout.folderKey(salt, folder)
+            val dir = listOf(root.path, "metadata", VaultCloudLayout.namespace(salt, "metadata"), key).filter { it.isNotEmpty() }
+            File(dir.joinToString(File.separator), VaultCloudLayout.batchFileName(salt, key)).apply {
                 parentFile.mkdirs()
-                writeBytes(FolderMetadataBatchCodec.encode(FolderMetadataBatch(folder, files, version), keys.metadataBatchKey()))
+                writeBytes(FolderMetadataBatchCodec.encode(FolderMetadataBatch(folder, files, version, folderKey = key), keys.metadataBatchKey()))
             }
         }
 
@@ -136,7 +137,7 @@ class VaultRecoveryHardeningTest {
         val vault = TestVault(temp.newFolder("cloud"))
         vault.publish("", mapOf("a.txt" to vault.entry("a.txt", "a".encodeToByteArray())))
         vault.publish("Photos", mapOf("p.txt" to vault.entry("p.txt", "p".encodeToByteArray(), folder = "Photos")))
-        val photosBatch = File(vault.root, "metadata/${VaultCloudLayout.namespace(vault.salt, "metadata")}/${VaultCloudLayout.folderDirName(vault.salt, "Photos")}")
+        val photosBatch = File(vault.root, "metadata/${VaultCloudLayout.namespace(vault.salt, "metadata")}/${VaultCloudLayout.folderKey(vault.salt, "Photos")}")
             .listFiles()!!.single()
         photosBatch.writeBytes(photosBatch.readBytes().also { it[20] = (it[20] + 1).toByte() })
 
