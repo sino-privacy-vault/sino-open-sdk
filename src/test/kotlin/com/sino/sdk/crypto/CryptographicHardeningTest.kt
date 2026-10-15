@@ -228,23 +228,14 @@ class CryptographicHardeningTest {
         keyPair.zeroize()
     }
 
-    @Test(expected = Exception::class)
-    fun `test ML-KEM-768 wrong private key envelope decapsulation failure`() {
-        val deviceKeyPair1 = mlKemEngine.generateKeyPair()
-        val deviceKeyPair2 = mlKemEngine.generateKeyPair()
-
-        val vaultKey = ByteArray(32).also { Random().nextBytes(it) }
-
-        // Create key envelope for device 1
-        val envelope = deviceManager.createDeviceEnvelope(deviceId = "device-01", vaultKey = vaultKey, mlKemPublicKey = deviceKeyPair1.publicKey)
-
+    @Test(expected = IllegalArgumentException::class)
+    fun `a device entry refuses a private key in place of the public one`() {
+        val deviceKeyPair = mlKemEngine.generateKeyPair()
+        val signing = MLDSAEngine().generateKeyPair()
         try {
-            // Attempting to unwrap envelope using device 2's private key must fail
-            deviceManager.unwrapDeviceEnvelope(envelope, deviceKeyPair2.privateKey)
+            deviceManager.createDeviceEntry(deviceId = "device-01", kemPublicKey = deviceKeyPair.privateKey, signingPublicKey = signing.publicKey)
         } finally {
-            deviceKeyPair1.zeroize()
-            deviceKeyPair2.zeroize()
-            SecurityUtils.fillZero(vaultKey)
+            deviceKeyPair.zeroize()
         }
     }
 }

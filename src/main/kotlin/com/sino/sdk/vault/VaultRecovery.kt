@@ -2,6 +2,8 @@ package com.sino.sdk.vault
 
 import com.sino.sdk.crypto.AESEncryptionEngine
 import com.sino.sdk.crypto.CryptoConstants
+import com.sino.sdk.crypto.DeviceInfo
+import com.sino.sdk.crypto.KeyEnvelope
 import com.sino.sdk.crypto.SecurityUtils
 import com.sino.sdk.crypto.VaultManifest
 import java.io.BufferedInputStream
@@ -166,6 +168,9 @@ class VaultRecovery private constructor(
         }
         return RecoveryReport(recovered, failed, skipped)
     }
+
+    /** The name and type of an enrolled device, or null if [envelope] has none this vault can open. */
+    fun deviceInfo(envelope: KeyEnvelope): DeviceInfo? = keys.openDeviceInfo(envelope)
 
     /** Reads `security/vault_manifest.json` from every copy and returns the newest one signed by this vault. */
     fun verifyManifest(): ManifestReport {

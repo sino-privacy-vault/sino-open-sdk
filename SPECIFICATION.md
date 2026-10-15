@@ -128,14 +128,29 @@ and `providerHints`. Unknown fields are ignored.
   `ML-DSA.KeyGen_internal(ξ = domain key "SINO/V1/VAULT-MANIFEST-SIGNER")`, so every unlocked device can sign and
   anyone holding the RMK can verify. `vaultIdentifier` is the hex of the first 16 bytes of the domain key
   `"SINO/V1/VAULT-MANIFEST-ID"`.
-- **Envelopes:** each enrolled device has an ML-KEM-768 key pair from a 64-byte `d || z` seed that never leaves the
-  device. Its envelope seals the RMK as `AES-GCM(HKDF(sharedSecret, "SINO/V1/DEVICE-ENVELOPE|<suite>|<device id>"),
-  nonce, RMK)`. The tag is part of `ciphertextBase64`, `authTagBase64` is empty, and `pqcEncapsulationBase64` is the
-  ML-KEM ciphertext. Binding the device id and suite stops an envelope from being replayed into another slot.
+- **Device entries** (`keyEnvelopes`, entry `version` 2): each enrolled device has a 64-byte `d || z` seed that never
+  leaves the device. Its entry is `{ "version": 2, "cryptoSuite", "keyId": "<device id>", "deviceInfoBase64",
+  "kemPublicKeyBase64", "signingPublicKeyBase64", "createdAt" }`: the public halves of its ML-KEM-768 key pair
+  (`KeyGen_internal(d, z)`) and its ML-DSA-65 key pair (`KeyGen_internal(ξ = HKDF-SHA-512(seed,
+  "SINO/V1/DEVICE-ALERT-SIGNER", 32))`). An entry holds no copy of the RMK: a device keeps its seed while locked, so
+  such a copy would open the vault without the password.
+- **Device names:** `deviceInfoBase64` holds the device's name and type, so the cloud never sees them:
+  `base64(iv(12) || AES-256-GCM(domain key "SINO/V1/DEVICE-INFO", utf8(json)))`, where the JSON is
+  `{"keyId": "<device id>", "name": "…", "type": "…"}` padded with spaces to a multiple of 128 bytes (so its size
+  does not give the name's length). A reader must check that `keyId` is the envelope's own. It is null when a device
+  has no name.
 - **Revocation:** a revoked device moves from `keyEnvelopes` to `revokedKeyIds`, the epoch increases and the list is
   re-signed. Each device pins the signer key and the newest epoch it accepted. It wipes itself (that device only)
   when a list that verifies names it in `revokedKeyIds`. Being missing from the envelopes is not a revocation.
   Revocation is a kill switch for a lost device, not a cryptographic lock-out: every device has held the RMK.
+- **Wrong-password alerts** (`security/alert_<device id>.json`, opt-in per device): `{ "format": "SINO-DEVICE-ALERT",
+  "version": 1, "senderKeyId", "sequence", "copies": [ { "recipientKeyId", "encapsulationBase64", "sealedBase64" } ],
+  "signatureBase64" }`. Each copy seals the report `{"senderKeyId", "sequence", "failedAttempts", "unlockedAfter",
+  "reportedAt"}` (JSON padded with spaces to a multiple of 128 bytes) as `base64(iv(12) || AES-256-GCM(HKDF-SHA-512(
+  sharedSecret, "SINO/V1/DEVICE-ALERT|<sender>|<recipient>|<sequence>", 32)))`, where the shared secret comes from
+  ML-KEM-768 encapsulation to the recipient's `kemPublicKeyBase64`. The signature is ML-DSA-65 by the sender's
+  `signingPublicKeyBase64` over the JSON with `signatureBase64` null. A reader refuses a sequence not newer than the
+  last it accepted from that sender. Recovery does not need these files.
 
 ## 8. Post-quantum parameters
 
