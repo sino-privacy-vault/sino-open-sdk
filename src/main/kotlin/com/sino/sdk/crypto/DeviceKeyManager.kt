@@ -1,87 +1,42 @@
 package com.sino.sdk.crypto
 
+import com.sino.sdk.vault.VaultKeys
+
 /**
- * Device key envelopes, identical to Sino's core: the vault root key is sealed for one device with AES-256-GCM under
- * `HKDF-SHA-512(sharedSecret, "SINO/V1/DEVICE-ENVELOPE|<suite>|<deviceId>")`, where the shared secret comes from
- * ML-KEM-768 encapsulation to the device's public key. Binding the device id and suite means an envelope cannot be
- * replayed into another device's slot or another suite.
+ * Device-list entries, identical to Sino's core: a device's id, its ML-KEM-768 and ML-DSA-65 public keys, and its
+ * name and type sealed with [VaultKeys.sealDeviceInfo] under the vault key's domain key. An entry holds no copy of the
+ * vault key (a device keeps its private keys while locked, so such a copy would open the vault without the password).
  */
-class DeviceKeyManager(
-    private val mlKemEngine: MLKEMEngine = MLKEMEngine(),
-    private val encryptionEngine: AESEncryptionEngine = AESEncryptionEngine(),
-    private val hkdf: HKDFEngine = HKDFEngine(),
-) {
+class DeviceKeyManager {
     companion object {
-        const val ENVELOPE_VERSION = 1
+        const val ENVELOPE_VERSION = 2
     }
 
-    fun createDeviceEnvelope(
+    /** [vaultKey] seals [deviceName] and [deviceType]; it is needed only when one of them is given. */
+    fun createDeviceEntry(
         deviceId: String,
-        vaultKey: ByteArray,
-        mlKemPublicKey: ByteArray,
+        kemPublicKey: ByteArray,
+        signingPublicKey: ByteArray,
+        vaultKey: ByteArray? = null,
         deviceName: String? = null,
         deviceType: String? = null,
         createdAt: Long = System.currentTimeMillis(),
     ): KeyEnvelope {
         require(deviceId.isNotBlank()) { "Device id is blank" }
-        require(vaultKey.size == CryptoConstants.AES_KEY_SIZE) { "Vault key must be ${CryptoConstants.AES_KEY_SIZE} bytes" }
-
-        val (ciphertext, sharedSecret) = mlKemEngine.encapsulate(mlKemPublicKey)
-        var wrapKey: ByteArray? = null
-        var iv: ByteArray? = null
-        var encryptedVaultKey: ByteArray? = null
-        try {
-            wrapKey = envelopeKey(sharedSecret, deviceId)
-            iv = encryptionEngine.generateIV()
-            encryptedVaultKey = encryptionEngine.encrypt(vaultKey, wrapKey, iv)
-            return KeyEnvelope(
-                version = ENVELOPE_VERSION,
-                cryptoSuite = CryptoConstants.CRYPTO_SUITE_V1,
-                keyId = deviceId,
-                deviceName = deviceName,
-                deviceType = deviceType,
-                ciphertextBase64 = SecurityUtils.toBase64(encryptedVaultKey).concatToString(),
-                nonceBase64 = SecurityUtils.toBase64(iv).concatToString(),
-                authTagBase64 = "",
-                pqcEncapsulationBase64 = SecurityUtils.toBase64(ciphertext).concatToString(),
-                createdAt = createdAt,
-            )
-        } finally {
-            SecurityUtils.fillZero(sharedSecret)
-            SecurityUtils.fillZero(wrapKey)
-            SecurityUtils.fillZero(encryptedVaultKey)
-            SecurityUtils.fillZero(iv)
-            SecurityUtils.fillZero(ciphertext)
+        require(kemPublicKey.size == MLKEMEngine.PUBLIC_KEY_SIZE) { "Not an ML-KEM-768 public key" }
+        require(signingPublicKey.size == MLDSAEngine.PUBLIC_KEY_SIZE) { "Not an ML-DSA-65 public key" }
+        val deviceInfo = if (deviceName == null && deviceType == null) null else {
+            requireNotNull(vaultKey) { "The vault key seals the device's name" }
+            VaultKeys(vaultKey).use { it.sealDeviceInfo(DeviceInfo(deviceId, deviceName, deviceType)) }
         }
+        return KeyEnvelope(
+            version = ENVELOPE_VERSION,
+            cryptoSuite = CryptoConstants.CRYPTO_SUITE_V1,
+            keyId = deviceId,
+            deviceInfoBase64 = deviceInfo,
+            kemPublicKeyBase64 = SecurityUtils.toBase64(kemPublicKey).concatToString(),
+            signingPublicKeyBase64 = SecurityUtils.toBase64(signingPublicKey).concatToString(),
+            createdAt = createdAt,
+        )
     }
-
-    /** The vault key sealed in [envelope], for the device holding [mlKemPrivateKey] (expanded key or 64-byte seed). */
-    fun unwrapDeviceEnvelope(envelope: KeyEnvelope, mlKemPrivateKey: ByteArray): ByteArray {
-        require(envelope.version == ENVELOPE_VERSION) { "Unsupported key envelope version ${envelope.version}" }
-        require(envelope.cryptoSuite == CryptoConstants.CRYPTO_SUITE_V1) { "Key envelope uses an unsupported crypto suite" }
-        val encapsulation = envelope.pqcEncapsulationBase64 ?: throw IllegalArgumentException("Missing PQC encapsulation")
-
-        var ciphertext: ByteArray? = null
-        var iv: ByteArray? = null
-        var encryptedVaultKey: ByteArray? = null
-        var sharedSecret: ByteArray? = null
-        var wrapKey: ByteArray? = null
-        try {
-            ciphertext = SecurityUtils.fromBase64(encapsulation.toCharArray())
-            iv = SecurityUtils.fromBase64(envelope.nonceBase64.toCharArray())
-            encryptedVaultKey = SecurityUtils.fromBase64(envelope.ciphertextBase64.toCharArray())
-            sharedSecret = mlKemEngine.decapsulate(ciphertext, mlKemPrivateKey)
-            wrapKey = envelopeKey(sharedSecret, envelope.keyId)
-            return encryptionEngine.decrypt(encryptedVaultKey, wrapKey, iv)
-        } finally {
-            SecurityUtils.fillZero(ciphertext)
-            SecurityUtils.fillZero(iv)
-            SecurityUtils.fillZero(encryptedVaultKey)
-            SecurityUtils.fillZero(sharedSecret)
-            SecurityUtils.fillZero(wrapKey)
-        }
-    }
-
-    private fun envelopeKey(sharedSecret: ByteArray, deviceId: String): ByteArray =
-        hkdf.derive(sharedSecret, "SINO/V1/DEVICE-ENVELOPE|${CryptoConstants.CRYPTO_SUITE_V1}|$deviceId", 32)
 }

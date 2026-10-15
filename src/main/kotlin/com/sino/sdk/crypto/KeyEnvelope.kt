@@ -14,26 +14,35 @@ object CryptoConstants {
 }
 
 /**
- * A device's copy of the vault root key: AES-256-GCM under a key derived from an ML-KEM-768 shared secret (see
- * [DeviceKeyManager]). The GCM tag is part of [ciphertextBase64]; [authTagBase64] is a legacy field and stays empty.
+ * A device's entry in the signed device list. It holds no key material that opens the vault, only the device's public
+ * keys: [kemPublicKeyBase64] (ML-KEM-768) and [signingPublicKeyBase64] (ML-DSA-65), which Sino uses for wrong-password
+ * alerts between devices. [deviceInfoBase64] is the device's [DeviceInfo], sealed under a vault-root key (see
+ * [com.sino.sdk.vault.VaultKeys.openDeviceInfo]).
  */
 @Serializable
 data class KeyEnvelope(
-    val version: Int = 1,
+    val version: Int = 2,
     val cryptoSuite: String = CryptoConstants.CRYPTO_SUITE_V1,
     val keyId: String,
-    val deviceName: String? = null,
-    val deviceType: String? = null,
-    val ciphertextBase64: String,
-    val nonceBase64: String,
-    val authTagBase64: String,
-    val pqcEncapsulationBase64: String? = null,
+    val deviceInfoBase64: String? = null,
+    val kemPublicKeyBase64: String,
+    val signingPublicKeyBase64: String,
     val createdAt: Long,
 ) {
     fun toJson(): String = CryptoJson.encodeToString(serializer(), this)
 
     companion object {
         fun fromJson(json: String): KeyEnvelope = CryptoJson.decodeFromString(serializer(), json)
+    }
+}
+
+/** A device's name and type as Sino shows them. [keyId] binds it to the envelope it is sealed in. */
+@Serializable
+data class DeviceInfo(val keyId: String, val name: String? = null, val type: String? = null) {
+    fun toJson(): String = CryptoJson.encodeToString(serializer(), this)
+
+    companion object {
+        fun fromJson(json: String): DeviceInfo = CryptoJson.decodeFromString(serializer(), json)
     }
 }
 
