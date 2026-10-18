@@ -20,7 +20,7 @@ disagree.
 
 ## Recover your files without the Sino apps
 
-1. **Download your vault.** From each cloud provider you used (MEGA, Google Drive, S3), download the `SinoVault`
+1. **Download your vault.** From each cloud provider you used (MEGA, Google Drive, S3, Azure Blob Storage), download the `SinoVault`
    folder. One provider is enough if it holds everything. Give several and the tool merges them and fills gaps.
 2. **Build the tool.** You need a Java 17+ JDK:
    ```bash
