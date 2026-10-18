@@ -20,7 +20,7 @@ disagree.
 
 ## Recover your files without the Sino apps
 
-1. **Download your vault.** From each cloud provider you used (MEGA, Google Drive, S3), download the `SinoVault`
+1. **Download your vault.** From each cloud provider you used (MEGA, Google Drive, S3, Azure Blob Storage), download the `SinoVault`
    folder. One provider is enough if it holds everything. Give several and the tool merges them and fills gaps.
 2. **Build the tool.** You need a Java 17+ JDK:
    ```bash
@@ -63,7 +63,7 @@ Only the real vault can be recovered. The decoy (duress) vault is bound to one d
 
 | Package | Contents |
 | --- | --- |
-| `crypto` | AES-256-GCM with the chunked format 2 (identical to Sino's engine), HKDF-SHA-512, Argon2id, ML-KEM-768 and ML-DSA-65 (BouncyCastle, an independent implementation), device key envelopes, the manifest models, and strict String-free encoders (`SecurityUtils`). |
+| `crypto` | AES-256-GCM with the chunked format 2 (identical to Sino's engine), HKDF-SHA-512, Argon2id, ML-KEM-768 and ML-DSA-65 (BouncyCastle, an independent implementation), device-list entries (public keys and sealed device names), the manifest models, and strict String-free encoders (`SecurityUtils`). |
 | `vault` | The vault format: root-key schedule (`VaultKeys`), recovery backup (`RecoveryKit`), artifact container, cloud layout, metadata batches (decode, placement check, cross-provider merge), manifest verification and `VaultRecovery`. |
 | `cli` | The recovery tool (`SinoDecryptorCLI`). |
 | `util` | Sino's log sanitizer (`SinoPrivacyEngine`), the same rules the apps apply before anything is written to a log. |

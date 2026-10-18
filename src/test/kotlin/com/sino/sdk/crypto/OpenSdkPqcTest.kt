@@ -95,22 +95,38 @@ class OpenSdkPqcTest {
     }
 
     @Test
-    fun `a device envelope opens only for its device and its device id`() {
+    fun `a device entry holds the device's public keys and no copy of the vault key`() {
         val manager = DeviceKeyManager()
-        val kem = MLKEMEngine()
-        val device = kem.generateKeyPair()
+        val kem = MLKEMEngine().generateKeyPair()
+        val signing = MLDSAEngine().generateKeyPair()
+
+        val entry = manager.createDeviceEntry(deviceId = "device-1", kemPublicKey = kem.publicKey, signingPublicKey = signing.publicKey)
+        assertEquals("device-1", entry.keyId)
+        assertEquals(CryptoConstants.CRYPTO_SUITE_V1, entry.cryptoSuite)
+        assertArrayEquals(kem.publicKey, SecurityUtils.fromBase64(entry.kemPublicKeyBase64.toCharArray()))
+        assertArrayEquals(signing.publicKey, SecurityUtils.fromBase64(entry.signingPublicKeyBase64.toCharArray()))
+        assertEquals(setOf("version", "cryptoSuite", "keyId", "deviceInfoBase64", "kemPublicKeyBase64", "signingPublicKeyBase64", "createdAt"),
+            kotlinx.serialization.json.Json.parseToJsonElement(entry.toJson()).let { it as kotlinx.serialization.json.JsonObject }.keys)
+        assertThrows(IllegalArgumentException::class.java) { manager.createDeviceEntry("device-1", ByteArray(16), signing.publicKey) }
+        assertThrows(IllegalArgumentException::class.java) { manager.createDeviceEntry(" ", kem.publicKey, signing.publicKey) }
+    }
+
+    @Test
+    fun `a device's name and type are sealed under the vault key and bound to the device`() {
+        val device = MLKEMEngine().generateKeyPair()
+        val signing = MLDSAEngine().generateKeyPair()
         val vaultKey = ByteArray(32).also { random.nextBytes(it) }
+        val envelope = DeviceKeyManager().createDeviceEntry("device-1", device.publicKey, signing.publicKey, vaultKey, "ADA-LAPTOP", "Windows desktop")
+        assertFalse(envelope.toJson().contains("ADA-LAPTOP"))
 
-        val envelope = manager.createDeviceEnvelope(deviceId = "device-1", vaultKey = vaultKey, mlKemPublicKey = device.publicKey)
-        assertEquals("device-1", envelope.keyId)
-        assertEquals(CryptoConstants.CRYPTO_SUITE_V1, envelope.cryptoSuite)
-        assertEquals("", envelope.authTagBase64)
-        assertArrayEquals(vaultKey, manager.unwrapDeviceEnvelope(envelope, device.privateKey))
-
-        // The envelope key is bound to the device id: moved into another device's slot it no longer opens.
-        assertThrows(Exception::class.java) { manager.unwrapDeviceEnvelope(envelope.copy(keyId = "device-2"), device.privateKey) }
-        assertThrows(IllegalArgumentException::class.java) { manager.unwrapDeviceEnvelope(envelope.copy(cryptoSuite = "SINO-LEGACY"), device.privateKey) }
-        assertThrows(IllegalArgumentException::class.java) { manager.createDeviceEnvelope("device-1", ByteArray(16), device.publicKey) }
+        com.sino.sdk.vault.VaultKeys(vaultKey).use { keys ->
+            assertEquals(DeviceInfo("device-1", "ADA-LAPTOP", "Windows desktop"), keys.openDeviceInfo(envelope))
+            assertNull(keys.openDeviceInfo(envelope.copy(keyId = "device-2")))
+            val short = keys.sealDeviceInfo(DeviceInfo("device-1", "PC"))
+            assertEquals("The sealed size does not give the name's length", envelope.deviceInfoBase64!!.length, short.length)
+        }
+        com.sino.sdk.vault.VaultKeys(ByteArray(32) { 1 }).use { assertNull(it.openDeviceInfo(envelope)) }
+        assertNull(DeviceKeyManager().createDeviceEntry("device-1", device.publicKey, signing.publicKey, vaultKey).deviceInfoBase64)
     }
 
     @Test

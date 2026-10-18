@@ -151,6 +151,13 @@ class CoreVaultInteropTest {
             assertEquals(expected["devices"]!!.jsonPrimitive.content.toInt(), manifest.keyEnvelopes.size)
             assertTrue(manifest.keyEnvelopes.any { it.keyId == expected["phone"]!!.jsonPrimitive.content })
             assertEquals(listOf(expected["revoked"]!!.jsonPrimitive.content), manifest.revokedKeyIds)
+
+            // Device names are sealed: not in the file, and opened with the vault's key.
+            val phone = manifest.keyEnvelopes.single { it.keyId == expected["phone"]!!.jsonPrimitive.content }
+            val phoneName = expected["phoneName"]!!.jsonPrimitive.content
+            assertFalse(File(providerA, "SinoVault/security/vault_manifest.json").readText().contains("\"$phoneName\""))
+            assertEquals(phoneName, vault.deviceInfo(phone)?.name)
+            assertNull("A name moved to another device does not open", vault.deviceInfo(phone.copy(keyId = "device-other")))
         }
     }
 

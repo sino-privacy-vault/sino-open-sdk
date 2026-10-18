@@ -126,7 +126,8 @@ object SinoDecryptorCLI {
         val date = SimpleDateFormat("yyyy-MM-dd HH:mm")
         out.println("Device list verified (ML-DSA-65): vault ${manifest.vaultIdentifier}, key epoch ${manifest.keyEpoch}, suite ${manifest.cryptoSuite}")
         manifest.keyEnvelopes.forEach { env ->
-            out.println("  device ${env.keyId}  ${env.deviceName ?: "(unnamed)"} ${env.deviceType ?: ""}  enrolled ${date.format(Date(env.createdAt))}")
+            val info = vault.deviceInfo(env)
+            out.println("  device ${env.keyId}  ${info?.name ?: "(unnamed)"} ${info?.type ?: ""}  enrolled ${date.format(Date(env.createdAt))}")
         }
         manifest.revokedKeyIds.forEach { out.println("  revoked ${it}") }
         return EXIT_OK
