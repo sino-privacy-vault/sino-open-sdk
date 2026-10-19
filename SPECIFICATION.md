@@ -183,3 +183,127 @@ java -jar build/libs/sino-recovery-<version>.jar recover --vault <SinoVault copy
 
 See the README for every command. Recovery is offline and never overwrites existing files. Each file is checked
 against `cloudChecksum`. A damaged copy is replaced by another provider's copy.
+
+## 12. Managed vaults: recovery from organisation kits
+
+A vault enrolled with a company's Sino Control Hub keeps a **recovery file**: its `RMK || vault salt` sealed to the
+organisation's recovery key. The key is split into **organisation kits**, one per admin, and any `threshold` of them
+rebuild it. Kits and the recovery file open the vault without Sino, its apps or its hub. The company takes the
+recovery file from its hub's console (Vaults and recovery) or from its own storage (`sino-hub/recovery/<vault>.sinorecovery`).
+
+```bash
+java -jar build/libs/sino-recovery-<version>.jar recover --vault <SinoVault copy> --out <folder> \
+    --recovery-file vault.sinorecovery --kit alice.sinokit --kit bob.sinokit [--kit-passphrases <file>]
+```
+
+**Kits** (`SINO-ORG-KIT`, version 1), JSON: `orgId`, `orgName`, `kitSetId` (16 bytes, hex), `createdAt`, `holder`,
+`threshold`, `shareCount`, `shareIndex`, `shareBase64` (32 bytes), `rootPublicKeyBase64` (ML-DSA-65),
+`recoveryPublicKey` and `sealedRsaPrivateKeyBase64`, signed with the root key (ML-DSA-65 over the JSON with
+`signatureBase64` null, fields in this order, every field written).
+
+- `recoveryPublicKey`: base64url (no padding) of `[1][u16 rsaLength][RSA SPKI][ML-KEM-768 public key]`.
+- A kit sealed with a passphrase (`SINO-ORG-KIT-SEALED`) keeps its header readable (`content`, `orgId`, `orgName`,
+  `kitSetId`, `holder`, `shareIndex`, `shareCount`, `threshold`, `saltBase64`) and holds the kit in `sealedBase64`:
+  `iv(12) || AES-256-GCM(key, iv, kit JSON)`, `key = HKDF-SHA-512(Argon2id(passphrase, salt), "SINO/V1/ORG-KIT-SEAL|" || kitSetId, 32)`
+  (Argon2id as in §4). The kit inside must match the header.
+- A paper kit (`SINO-ORG-PAPER-KIT`) leaves out the public keys and the signature and has `rootFingerprint` instead
+  (base64url SHA-256 of the root public key). Printed, its text (sealed or not) is cut into QR codes
+  `SINOKIT1:<part>/<parts>:<kitSetId>:<text>`, which join in any order.
+
+**Combining.** The shares are Shamir shares of a 32-byte secret `S`, byte by byte over GF(2^8) with the AES
+polynomial `x^8 + x^4 + x^3 + x + 1`; `S` is the polynomial at 0 (Lagrange). With `ctx = orgId || "|" || kitSetId`:
+- root key: `ML-DSA-65.KeyGen_internal(HKDF-SHA-512(S, "SINO/V1/ORG-ROOT|" || ctx, 32))`;
+- recovery key, ML-KEM half: `ML-KEM-768.KeyGen_internal(HKDF-SHA-512(S, "SINO/V1/ORG-RECOVERY-KEM|" || ctx, 64))` (d || z);
+- recovery key, RSA half: `sealedRsaPrivateKeyBase64` is `iv(12) || AES-256-GCM(HKDF-SHA-512(S, "SINO/V1/ORG-KIT-RSA|" || ctx, 32), iv, PKCS#8)`.
+
+The kits must be of one ceremony (same fields but holder, index and share), with distinct indexes, at least
+`threshold` of them. Shamir cannot tell that wrong shares were combined, so the result is checked: the RSA key must
+open, and the derived keys must match the kits' public keys (and the root fingerprint).
+
+**The recovery file** (`SINO-ORG-RECOVERY`, version 1): `orgId`, `vaultId`, `kitSetId`, `deviceId`, `createdAt` and
+`sealedBase64`, the hybrid container of §4 (legacy handover): `"SINO" || 3 || u16 rsaLength || rsaCt || kemCt(1088) || iv(12) || gcm`.
+- `kemSecret = ML-KEM-768.Decaps(kemCt)`, `rsaSecret = RSA-OAEP(SHA-256, MGF1-SHA-1).Decrypt(rsaCt)` (32 bytes);
+- `kek = HKDF-SHA-512(kemSecret || rsaSecret, "SINO/V1/ORG-RECOVERY|" || orgId || "|" || vaultId || "|" || kitSetId || "|" || hex(SHA-256(kemCt || rsaCt || rsaSpki || mlKemPublicKey)), 32)`,
+  hex in lower case;
+- the payload `AES-256-GCM(kek, iv)` is `RMK(32) || vault salt`, which opens the vault as §4's backup does.
+
+The file opens only with the kits of the set it names. After a kit rotation, a vault's file is sealed to the new kits
+once one of its devices has unlocked; until then, the previous kits open it.
+
+## 13. Shared folders
+
+Vaults of one organisation share folders end to end encrypted. A folder has keys of its own, separate from every
+member's vault key, and lives in the organisation's storage at `shares/<share id>/` (on Azure, a container of its own):
+
+```text
+share_manifest.json                         the folder's newest manifest
+metadata/<HMAC(salt, "share-batch:" || writer)>.batch    one batch per writer (a member vault's device)
+blobs/<HMAC(salt, "share-blob:" || revision id)>.enc     each revision's content
+```
+
+Names are the first 16 bytes of `HMAC-SHA256(salt, label)`, lower-case hex. A **writer** is `<vault id>/<16 hex digits>`.
+
+```bash
+java -jar build/libs/sino-recovery-<version>.jar share-recover --share <copy of shares/<id>> --out <folder> \
+    --kit alice.sinokit --kit bob.sinokit [--include-trashed] [--kit-passphrases <file>]
+```
+
+**The manifest** (`SINO-SHARE-MANIFEST`, version 1), JSON, every field written in this order: `format`, `version`,
+`orgId`, `shareId` (16 bytes, hex), `manifestVersion`, `epoch`, `previousHash`, `nameBase64`, `members`, `keys`,
+`kitSetId`, `orgRecoveryBase64`, `issuedAt`, `signedBy`, `signatureBase64`.
+- `members`: `vaultId`, `role` (`OWNER`, `EDITOR`, `VIEWER`), `signerBase64` (ML-DSA-65 public key) and `receiver`
+  (the recipient token of §12: RSA SPKI and ML-KEM-768 public key).
+- `keys`: per member, `vaultId` and `sealedBase64`: the **key bundle** sealed to its receiver.
+- `orgRecoveryBase64`: the same bundle sealed to the organisation recovery key of kit set `kitSetId`.
+- `nameBase64`: `iv(12) || AES-256-GCM(nameKey(epoch), iv, utf-8 name)`.
+- `signatureBase64`: ML-DSA-65 over the JSON with the signature null, by member `signedBy` (an owner of the previous
+  version), or by the organisation root key when `signedBy` is `org-root` (company recovery). `previousHash` is
+  lower-case hex SHA-256 of the previous version's JSON, signature included ("" for version 1). Removing a member
+  always starts a new `epoch`. Sino's apps check this chain from version 1 against the hub; a copy of the storage
+  holds only the newest version.
+
+**The key bundle**, JSON `shareId`, `epoch`, `saltBase64` (32 bytes) and `keysBase64` (the share keys of epochs 1 to
+`epoch`, 32 bytes each), in the hybrid container of §12, opened as there with the label:
+- for a member: `"SINO/V1/SHARE-KEYS|" || shareId || "|" || vaultId || "|" || epoch || "|"`;
+- for the organisation: `"SINO/V1/SHARE-ORG-RECOVERY|" || orgId || "|" || shareId || "|" || epoch || "|" || kitSetId || "|"`.
+
+From a share key `K` of an epoch: `batchKey = HMAC-SHA256(K, "SINO/V1/SHARE-BATCH" || 0x01)` and
+`nameKey = HMAC-SHA256(K, "SINO/V1/SHARE-NAME" || 0x01)`.
+
+**A member's receiving key.** A member vault keeps it at `security/share_identity.bin` in its own storage:
+`iv(12) || AES-256-GCM(HMAC-SHA256(RMK, "SINO/V1/SHARE-IDENTITY" || 0x01), iv, JSON)`, the JSON holding `format`
+(`SINO-SHARE-IDENTITY`), `version` (1), `kemSeedBase64` (64 bytes, `d || z`), `rsaPrivateKeyPkcs8Base64` and
+`rsaPublicKeySpkiBase64`. Its signing key is `ML-DSA-65.KeyGen_internal(HMAC-SHA256(RMK, "SINO/V1/SHARE-IDENTITY-SIGNER" || 0x01))`.
+So the vault's recovery phrase, or its recovery file and the kits, open its folders too.
+
+**Batches** (`SINO-SHARE-BATCH`, version 1): `format`, `version`, `shareId`, `writer`, `sequence`, `epoch`,
+`sealedBase64` and `signatureBase64`, ML-DSA-65 over the JSON with the signature null, by the writer's vault.
+`sealedBase64` is `iv(12) || AES-256-GCM(batchKey(epoch), iv, JSON)` of `shareId`, `writer`, `sequence`, `writtenAt`,
+`entries`, `editing` and `retired`. A batch counts only when its vault is an owner or editor of the manifest, its signature verifies, it
+sits at its writer's name, and its inner fields match the envelope.
+
+**Entries** (one revision each): `fileId`, `revisionId` (16 bytes, hex each), `name`, `mimeType`, `size`, `checksum`
+(hex SHA-256 of the plaintext), `modifiedAt`, `author` (vault id), `clock` (writer to count), `keyEpoch`,
+`wrappedDekBase64` (`iv(12) || AES-256-GCM(K of keyEpoch, iv, DEK)`), `ivBase64`, `encryptionVersion` (2),
+`blobName`, `trashed`, `deleted`, `parentId` and `folder`. The blob is the chunked format of §2 under the DEK and iv.
+A `folder` entry is a subfolder, with no content (empty `blobName`, size 0); `parentId` names the subfolder an entry
+sits in (a folder entry's `fileId`), "" for the top.
+
+**Retired** (`retired`, possibly empty): content the writer's revisions replaced, each `blobName` and `since`, which
+the writer deletes 7 days later unless a current revision uses it again. It need not be read to recover a folder.
+
+**Edit marks** (`editing`, possibly empty): the files the writer is editing outside Sino, each `fileId`, `revisionId`
+(the revision the copy came from), `baseClock` (its clock), `since` and `until` (at most 24 hours later). They are
+hints for the other members ("Bob is editing this file") and need not be read to recover a folder. The writer's next
+revision of the file builds on `baseClock`, so a revision someone else made meanwhile stays beside it as a conflict.
+
+**Merging.** A revision replaces another of the same file when its clock is at least the other's for every writer
+and more for one. The file's current revisions are those nothing replaces: a `deleted` one hides the file unless a
+live one stands beside it; live ones not in the trash come before trashed ones. Two or more live revisions are a
+conflict: the earliest (by `modifiedAt`, then `revisionId`) keeps the name, the others become
+`<name> (conflict, <author>, <yyyy-mm-dd>)<extension>`, with the date in UTC.
+
+**Subfolders.** A subfolder's revision that counts is, of its current ones, one not in the trash, then the latest (by
+`modifiedAt`, then `revisionId`). An entry sits in the subfolder `parentId` names, or at the top when that subfolder is
+gone or the entry is a subfolder whose parents lead back to itself. What sits in a subfolder in the trash is in the
+trash with it. `share-recover` writes subfolders as directories.

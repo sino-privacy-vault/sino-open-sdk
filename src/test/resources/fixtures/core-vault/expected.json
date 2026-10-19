@@ -1,18 +1,35 @@
 {
-  "vaultIdentifier": "df3c9ee41f6c1825d05dad2a2453d240",
+  "vaultIdentifier": "c5c994854d02c341550d905fdf95b5f8",
   "devices": 2,
-  "revoked": "device-daf4da10-4837-433e-8a71-5479bf3f4b0b",
-  "phone": "device-33d2e79c-4187-4b01-93f1-b4d6c44f28f2",
+  "revoked": "device-77b6ff36-75af-4e50-af78-0cf257984bb0",
+  "phone": "device-c10906a2-a2a5-47a4-bdbb-d7a4b181760e",
   "phoneName": "Phone",
   "files": {
-    "DCIM/Camera/IMG_0001.jpg": "cb010a9e835c57b30afdfc9ecaf2f2ff00a52d00b7a11b719d3987098e683558",
-    "DCIM/Camera/IMG_0002.jpg": "91e1e2358bd0c1d4e26958a371334a27545b1f5336540ad513995703603fd023",
+    "DCIM/Camera/IMG_0001.jpg": "47bb5e39f437f99e85697d5b20fae47097fc6d08a78020ccdf9389f23e7d6cf3",
+    "DCIM/Camera/IMG_0002.jpg": "09735fe5fe62937063dad0be00529e294af5a0c91931bcec2a381c0d8d4e79b8",
     "Docs/Ünïcødé/naïve ✓.txt": "a6745d77670391f486b213eef2a38cf5c7ff62becd7b95217acf1f962a602162",
-    "archive.bin": "ba145fec25b661265e744d6ef00ed0836c0a2eb8396f13d1cf683e07b39caea6",
+    "archive.bin": "b2e7cba852b41dfef0c7e286a7e8dd87165e308ea957cb5ca37f9bf5d7c33082",
     "notes.txt": "86cc9ec0fbd8f03847ad000080eb70e3278f4c37647d8ebe59866436edfc3f58",
     "report.pdf": "070fc9fafa90a25ab3eb8efe6160cd9ebc87831c286b8ef50d5b1b77329ed68d"
   },
   "trashed": {
     "DCIM/Camera/trashed.txt": "ceabf4582935c3aaeb3e18e83a38d75bcee75db96d3d8f5dd4bc3cf24b618bd7"
+  },
+  "share": {
+    "shareId": "03aba39cd9ad9015f8dd85c16ff9f2d2",
+    "vaultId": "vault-fixture",
+    "name": "Fixture project",
+    "files": {
+    "Specs/2026/q1.txt": "bba839c7e560cad6a466d0294dd6a57b0a26c58142694b8ee9944111f370e041",
+    "Specs/spec.txt": "688b9329eddb9906e3a69a6f19f534c57619ee19b01ad476763cdd1975b9892a",
+    "deck.pdf": "8c43bafed739458c79237ccfc09c7a4fe005d8b20fb8da211ef7b3acabf210a4",
+    "notes.md": "65a6e5f8cbbfd0f02c0e826731f5d1069b820198cb6a8c22bdd7f869c7bc46a9",
+    "plan (conflict, vault-colleague, 2025-10-09).txt": "a5f0d47f29d7c1ccff912eb9373aaacf2611f7aa230da3daa3a024fcffc093e5",
+    "plan.txt": "c7a9bf41fe2b97148aef09e5b62c698c4bc9f734923e7558019fa888dc803bb0"
+  },
+    "trash": {
+    "Archive/old plan.txt": "2d96ef9e8f9c0ff126499370a381edc4a9843f99607f2a3f8012810c02834a2c",
+    "draft.txt": "17d46ba7fd33591eb8f1a9cdbeac45d9ebc76bda0a33bb2f4c74956fc0327365"
+  }
   }
 }

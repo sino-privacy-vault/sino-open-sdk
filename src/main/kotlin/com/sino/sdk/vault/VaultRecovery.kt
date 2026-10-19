@@ -269,10 +269,7 @@ class VaultRecovery private constructor(
          * opens with the phrase, [IllegalStateException] if no backup is found.
          */
         fun open(dirs: List<File>, phrase: List<CharArray>, kit: RecoveryKit = RecoveryKit()): VaultRecovery {
-            val roots = dirs.map { dir ->
-                val nested = File(dir, VaultCloudLayout.VAULT_FOLDER)
-                Root(dir.path, if (nested.isDirectory) nested else dir)
-            }
+            val roots = rootsOf(dirs)
             val backups = roots.mapNotNull { root ->
                 val security = File(root.dir, VaultCloudLayout.SECURITY)
                 val salt = File(security, VaultCloudLayout.PUBLIC_SALT_FILE).takeIf { it.isFile }?.readBytes()
@@ -299,6 +296,21 @@ class VaultRecovery private constructor(
                 }
             }
             throw IllegalArgumentException("The recovery phrase does not match this vault's backup")
+        }
+
+        /**
+         * Opens the vault in [dirs] with its root key and salt when they come from elsewhere than the recovery phrase:
+         * a managed vault's recovery file opened with the organisation's kits ([com.sino.sdk.org.OrganisationRecovery]).
+         * Copies both; the caller wipes its own.
+         */
+        fun openWithKeys(dirs: List<File>, rootKey: ByteArray, vaultSalt: ByteArray): VaultRecovery {
+            require(rootKey.size == CryptoConstants.AES_KEY_SIZE && vaultSalt.size >= 16) { "Not a vault key and salt" }
+            return VaultRecovery(rootsOf(dirs), VaultKeys(rootKey), vaultSalt.copyOf())
+        }
+
+        private fun rootsOf(dirs: List<File>): List<Root> = dirs.map { dir ->
+            val nested = File(dir, VaultCloudLayout.VAULT_FOLDER)
+            Root(dir.path, if (nested.isDirectory) nested else dir)
         }
     }
 }

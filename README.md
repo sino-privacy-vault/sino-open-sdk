@@ -7,7 +7,8 @@ security core:
   accounts and how it is encrypted.
 - **An independent implementation.** The SDK reads and verifies that data with no dependency on the Sino apps.
 - **A recovery tool.** With your 24-word recovery phrase and a downloaded copy of your cloud folder, you can decrypt
-  every file without Sino.
+  every file without Sino. A vault managed by an organisation is recovered the same way with its recovery file
+  and a quorum of the organisation's kits.
 
 The tests recover a vault written by Sino's own code, so the specification, this SDK and the apps cannot silently
 disagree.
@@ -54,6 +55,36 @@ What recovery guarantees:
   folder are refused.
 - Exit codes: `0` everything recovered, `1` some files failed (listed), `2` the vault could not be opened.
 
+### A vault your organisation manages
+
+A work vault enrolled with a Sino Control Hub has no recovery phrase. It is recovered with the vault's **recovery
+file** (`.sinorecovery`, downloaded from the hub console under *Vaults*) and enough of the organisation's **kits**
+for its threshold, for example 2 of 3. A kit can be a full kit file, a kit sealed with a passphrase, or the codes of
+a paper kit typed or scanned into a text file, one code per line, in any order.
+
+```bash
+java -jar build/libs/sino-recovery-4.0.0.jar recover     --vault ~/Downloads/azure/SinoVault --out ~/Recovered     --recovery-file ~/Downloads/vault-1234.sinorecovery     --kit alice.sinokit --kit bob-sealed.sinokit --kit-passphrases passphrases.txt
+```
+
+Sealed kits take the next line of `--kit-passphrases`, or ask with the input hidden. Every kit's signature is
+checked, and the combined key must match the organisation's root key before the recovery file is opened. The recovery
+file opens only as the vault it names. `list` and `verify-manifest` take the same options. The hub is never
+contacted; see §12 of the specification.
+
+### A shared folder
+
+A folder shared between colleagues opens with the organisation's kits too. Copy the folder's storage
+(`shares/<share id>/`, or its own container on Azure; the hub console's *Shared folders* page lists the ids), then:
+
+```bash
+java -jar build/libs/sino-recovery-4.0.0.jar share-recover --share ~/Downloads/shares/4e30… --out ~/Recovered     --kit alice.sinokit --kit bob-sealed.sinokit --kit-passphrases passphrases.txt
+```
+
+`share-list` takes the same options. Both versions of a file two members changed at once are recovered, the later
+one under a conflict name, and subfolders become directories (what is inside a subfolder in the trash comes with
+`--include-trashed`). A member can also read a folder with its own vault's root key
+(`SharedFolderRecovery.openAsMember`); see §13 of the specification.
+
 Only the real vault can be recovered. The decoy (duress) vault is bound to one device's hardware by design; see
 §9 of the specification.
 
@@ -65,6 +96,8 @@ Only the real vault can be recovered. The decoy (duress) vault is bound to one d
 | --- | --- |
 | `crypto` | AES-256-GCM with the chunked format 2 (identical to Sino's engine), HKDF-SHA-512, Argon2id, ML-KEM-768 and ML-DSA-65 (BouncyCastle, an independent implementation), device-list entries (public keys and sealed device names), the manifest models, and strict String-free encoders (`SecurityUtils`). |
 | `vault` | The vault format: root-key schedule (`VaultKeys`), recovery backup (`RecoveryKit`), artifact container, cloud layout, metadata batches (decode, placement check, cross-provider merge), manifest verification and `VaultRecovery`. |
+| `org` | Managed vaults: reading organisation kits (full, sealed and paper), combining them (Shamir over GF(2^8)) with the check against the root key, and opening a vault's recovery file (`OrganisationRecovery`). |
+| `share` | Shared folders: their manifest, keys opened with the kits or a member's vault key, signed batches merged by version vectors, and the files (`SharedFolderRecovery`). |
 | `cli` | The recovery tool (`SinoDecryptorCLI`). |
 | `util` | Sino's log sanitizer (`SinoPrivacyEngine`), the same rules the apps apply before anything is written to a log. |
 
@@ -83,6 +116,20 @@ VaultRecovery.open(listOf(File("mega/SinoVault"), File("drive/SinoVault")), word
     val report = vault.recover(File("Recovered"))
     report.failed.forEach { println("FAILED $it") }
     println(vault.verifyManifest().manifest?.revokedKeyIds)
+}
+```
+
+A managed vault, from its recovery file and kits:
+
+```kotlin
+import com.sino.sdk.org.OrganisationRecovery
+
+val kits = listOf(OrganisationRecovery.readKit(aliceKit), OrganisationRecovery.readKit(bobKit, passphraseChars))
+OrganisationRecovery.open(kits).use { keys ->                     // throws below the threshold or on a bad kit
+    OrganisationRecovery.openRecoveryFile(recoveryFileText, keys).use { opened ->
+        VaultRecovery.openWithKeys(listOf(File("azure/SinoVault")), opened.rootKey, opened.vaultSalt)
+            .use { it.recover(File("Recovered")) }
+    }
 }
 ```
 
@@ -108,7 +155,9 @@ VaultKeys(rootKey).use { keys ->
 ```
 
 The interop fixture (`src/test/resources/fixtures/core-vault`) is regenerated from the Sino repository whenever a
-format changes; see its README.
+format changes, by `SdkFixtureGenerator` in Sino's core tests. It holds a vault written by two providers, its recovery
+phrase and the expected checksums, and under `org/` the same vault as a managed one: three kits of a 2-of-3 ceremony
+(one sealed with the passphrase in `kit-2.passphrase`, one as paper codes) and the vault's recovery file.
 
 ## Security and license
 
