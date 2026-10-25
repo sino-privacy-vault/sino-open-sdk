@@ -1,14 +1,14 @@
 {
-  "vaultIdentifier": "c5c994854d02c341550d905fdf95b5f8",
+  "vaultIdentifier": "34f500d6e9ec82e7fd4998c4fbc5bd17",
   "devices": 2,
-  "revoked": "device-77b6ff36-75af-4e50-af78-0cf257984bb0",
-  "phone": "device-c10906a2-a2a5-47a4-bdbb-d7a4b181760e",
+  "revoked": "device-3a4c7e72-8a32-41fa-a153-40553d30e127",
+  "phone": "device-c9a7953e-2c0a-4a34-8e54-30008bfd34f7",
   "phoneName": "Phone",
   "files": {
-    "DCIM/Camera/IMG_0001.jpg": "47bb5e39f437f99e85697d5b20fae47097fc6d08a78020ccdf9389f23e7d6cf3",
-    "DCIM/Camera/IMG_0002.jpg": "09735fe5fe62937063dad0be00529e294af5a0c91931bcec2a381c0d8d4e79b8",
+    "DCIM/Camera/IMG_0001.jpg": "a1b5080e44a946e1abb31087db3425a53caab5b69ba221d8a689f3ef7f119e8f",
+    "DCIM/Camera/IMG_0002.jpg": "6670342a3f81c154ff0dd9b2683bfdc1f20d9416a1ff63593f8d9e962958c925",
     "Docs/Ünïcødé/naïve ✓.txt": "a6745d77670391f486b213eef2a38cf5c7ff62becd7b95217acf1f962a602162",
-    "archive.bin": "b2e7cba852b41dfef0c7e286a7e8dd87165e308ea957cb5ca37f9bf5d7c33082",
+    "archive.bin": "a9a91bd1006548074d032665a309b92f3f04ede8e3f7cb0f97e927f165c80bbb",
     "notes.txt": "86cc9ec0fbd8f03847ad000080eb70e3278f4c37647d8ebe59866436edfc3f58",
     "report.pdf": "070fc9fafa90a25ab3eb8efe6160cd9ebc87831c286b8ef50d5b1b77329ed68d"
   },
@@ -16,13 +16,13 @@
     "DCIM/Camera/trashed.txt": "ceabf4582935c3aaeb3e18e83a38d75bcee75db96d3d8f5dd4bc3cf24b618bd7"
   },
   "share": {
-    "shareId": "03aba39cd9ad9015f8dd85c16ff9f2d2",
+    "shareId": "da7024140a0f8b826bb7cfc9c8cd50c8",
     "vaultId": "vault-fixture",
     "name": "Fixture project",
     "files": {
     "Specs/2026/q1.txt": "bba839c7e560cad6a466d0294dd6a57b0a26c58142694b8ee9944111f370e041",
     "Specs/spec.txt": "688b9329eddb9906e3a69a6f19f534c57619ee19b01ad476763cdd1975b9892a",
-    "deck.pdf": "8c43bafed739458c79237ccfc09c7a4fe005d8b20fb8da211ef7b3acabf210a4",
+    "deck.pdf": "9263c57502271ca8d18fab78a462b39d384f724527fb921f2ea2a604bc17713d",
     "notes.md": "65a6e5f8cbbfd0f02c0e826731f5d1069b820198cb6a8c22bdd7f869c7bc46a9",
     "plan (conflict, vault-colleague, 2025-10-09).txt": "a5f0d47f29d7c1ccff912eb9373aaacf2611f7aa230da3daa3a024fcffc093e5",
     "plan.txt": "c7a9bf41fe2b97148aef09e5b62c698c4bc9f734923e7558019fa888dc803bb0"

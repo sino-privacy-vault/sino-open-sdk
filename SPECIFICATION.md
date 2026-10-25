@@ -198,10 +198,14 @@ java -jar build/libs/sino-recovery-<version>.jar recover --vault <SinoVault copy
 
 **Kits** (`SINO-ORG-KIT`, version 1), JSON: `orgId`, `orgName`, `kitSetId` (16 bytes, hex), `createdAt`, `holder`,
 `threshold`, `shareCount`, `shareIndex`, `shareBase64` (32 bytes), `rootPublicKeyBase64` (ML-DSA-65),
-`recoveryPublicKey` and `sealedRsaPrivateKeyBase64`, signed with the root key (ML-DSA-65 over the JSON with
-`signatureBase64` null, fields in this order, every field written).
+`recoveryPublicKey`, `sealedRsaPrivateKeyBase64` and `rsaKeyInHsm` (null, or `{label, publicKeySpkiBase64}`), signed
+with the root key (ML-DSA-65 over the JSON with `signatureBase64` null, fields in this order, every field written).
 
-- `recoveryPublicKey`: base64url (no padding) of `[1][u16 rsaLength][RSA SPKI][ML-KEM-768 public key]`.
+- `recoveryPublicKey`: base64url (no padding) of `[version][u16 rsaLength][RSA SPKI][ML-KEM-768 public key]`, version 1;
+  version 2 when the RSA half is in the organisation's HSM, whose RSA-OAEP uses MGF1-SHA-256.
+- `rsaKeyInHsm`: when the organisation keeps the recovery key's RSA half in a hardware security module or cloud key
+  service, the kits hold no RSA private key (`sealedRsaPrivateKeyBase64` is empty) and name that key: its `label`
+  there and its public key, which must be `recoveryPublicKey`'s. Paper kits carry it too.
 - A kit sealed with a passphrase (`SINO-ORG-KIT-SEALED`) keeps its header readable (`content`, `orgId`, `orgName`,
   `kitSetId`, `holder`, `shareIndex`, `shareCount`, `threshold`, `saltBase64`) and holds the kit in `sealedBase64`:
   `iv(12) || AES-256-GCM(key, iv, kit JSON)`, `key = HKDF-SHA-512(Argon2id(passphrase, salt), "SINO/V1/ORG-KIT-SEAL|" || kitSetId, 32)`
@@ -214,15 +218,19 @@ java -jar build/libs/sino-recovery-<version>.jar recover --vault <SinoVault copy
 polynomial `x^8 + x^4 + x^3 + x + 1`; `S` is the polynomial at 0 (Lagrange). With `ctx = orgId || "|" || kitSetId`:
 - root key: `ML-DSA-65.KeyGen_internal(HKDF-SHA-512(S, "SINO/V1/ORG-ROOT|" || ctx, 32))`;
 - recovery key, ML-KEM half: `ML-KEM-768.KeyGen_internal(HKDF-SHA-512(S, "SINO/V1/ORG-RECOVERY-KEM|" || ctx, 64))` (d || z);
-- recovery key, RSA half: `sealedRsaPrivateKeyBase64` is `iv(12) || AES-256-GCM(HKDF-SHA-512(S, "SINO/V1/ORG-KIT-RSA|" || ctx, 32), iv, PKCS#8)`.
+- recovery key, RSA half: `sealedRsaPrivateKeyBase64` is `iv(12) || AES-256-GCM(HKDF-SHA-512(S, "SINO/V1/ORG-KIT-RSA|" || ctx, 32), iv, PKCS#8)`,
+  or with `rsaKeyInHsm`, the key in the HSM (nothing to open).
 
 The kits must be of one ceremony (same fields but holder, index and share), with distinct indexes, at least
 `threshold` of them. Shamir cannot tell that wrong shares were combined, so the result is checked: the RSA key must
-open, and the derived keys must match the kits' public keys (and the root fingerprint).
+open (unless it is in an HSM), and the derived keys must match the kits' public keys (and the root fingerprint).
 
 **The recovery file** (`SINO-ORG-RECOVERY`, version 1): `orgId`, `vaultId`, `kitSetId`, `deviceId`, `createdAt` and
 `sealedBase64`, the hybrid container of §4 (legacy handover): `"SINO" || 3 || u16 rsaLength || rsaCt || kemCt(1088) || iv(12) || gcm`.
-- `kemSecret = ML-KEM-768.Decaps(kemCt)`, `rsaSecret = RSA-OAEP(SHA-256, MGF1-SHA-1).Decrypt(rsaCt)` (32 bytes);
+- `kemSecret = ML-KEM-768.Decaps(kemCt)`, `rsaSecret = RSA-OAEP(SHA-256, MGF1-SHA-1).Decrypt(rsaCt)` (32 bytes); with
+  the RSA half in an HSM, the HSM decrypts `rsaCt` with RSA-OAEP(SHA-256, MGF1-SHA-256) (PKCS#11 `CKM_RSA_PKCS_OAEP`,
+  Azure Key Vault `RSA-OAEP-256`, AWS KMS `RSAES_OAEP_SHA_256`, Google Cloud KMS `RSA_DECRYPT_OAEP_*_SHA256`), and its
+  answer, 32 bytes, is `rsaSecret`. The tool prints `rsaCt` and takes the answer with `--hsm-answer <base64>`;
 - `kek = HKDF-SHA-512(kemSecret || rsaSecret, "SINO/V1/ORG-RECOVERY|" || orgId || "|" || vaultId || "|" || kitSetId || "|" || hex(SHA-256(kemCt || rsaCt || rsaSpki || mlKemPublicKey)), 32)`,
   hex in lower case;
 - the payload `AES-256-GCM(kek, iv)` is `RMK(32) || vault salt`, which opens the vault as §4's backup does.

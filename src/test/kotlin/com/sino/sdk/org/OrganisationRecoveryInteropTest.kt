@@ -123,4 +123,63 @@ class OrganisationRecoveryInteropTest {
         )
         assertEquals(SinoDecryptorCLI.EXIT_ERROR, tooFew)
     }
+
+    // --- The recovery key's RSA half in the organisation's HSM (fixtures/core-vault/org-hsm) ---
+
+    private val hsmOrg = File(fixture, "org-hsm")
+
+    /** What the HSM does: RSA-OAEP with SHA-256 and MGF1-SHA-256, with the key the fixture's test-only file holds. */
+    private fun hsmDecrypts(ciphertextBase64: String): String {
+        val key = java.security.KeyFactory.getInstance("RSA").generatePrivate(java.security.spec.PKCS8EncodedKeySpec(File(hsmOrg, "hsm-test-only.pk8").readBytes()))
+        val cipher = javax.crypto.Cipher.getInstance("RSA/ECB/OAEPPadding")
+        cipher.init(
+            javax.crypto.Cipher.DECRYPT_MODE, key,
+            javax.crypto.spec.OAEPParameterSpec("SHA-256", "MGF1", java.security.spec.MGF1ParameterSpec.SHA256, javax.crypto.spec.PSource.PSpecified.DEFAULT),
+        )
+        return java.util.Base64.getEncoder().encodeToString(cipher.doFinal(java.util.Base64.getDecoder().decode(ciphertextBase64)))
+    }
+
+    @Test
+    fun `with the RSA half in an HSM, the kits and the HSM's answer recover the vault, and neither alone`() {
+        val kits = listOf(
+            OrganisationRecovery.readKit(File(hsmOrg, "kit-1.sinokit").readText()),
+            OrganisationRecovery.readKit(File(hsmOrg, "kit-2-paper.txt").readText()),
+        )
+        assertEquals("sino-recovery", kits[0].hsm?.label)
+        assertEquals(kits[0].hsm, kits[1].hsm)
+        val file = File(hsmOrg, "recovery.sinorecovery").readText()
+        val out = temp.newFolder()
+        OrganisationRecovery.open(kits).use { keys ->
+            val needed = assertThrows(OrganisationRecovery.HsmAnswerNeededException::class.java) { OrganisationRecovery.openRecoveryFile(file, keys) }
+            assertEquals("sino-recovery", needed.keyLabel)
+            keys.answerHsm(java.util.Base64.getEncoder().encodeToString(ByteArray(32)))
+            assertThrows(IllegalArgumentException::class.java) { OrganisationRecovery.openRecoveryFile(file, keys) } // a wrong answer
+            assertThrows(IllegalArgumentException::class.java) { keys.answerHsm("AAAA") } // not 32 bytes
+            keys.answerHsm(hsmDecrypts(needed.ciphertextBase64))
+            OrganisationRecovery.openRecoveryFile(file, keys).use { vault ->
+                VaultRecovery.openWithKeys(providers, vault.rootKey, vault.vaultSalt).use { it.recover(out) }
+            }
+        }
+        val recovered = out.walkTopDown().filter { it.isFile }.associate { it.relativeTo(out).invariantSeparatorsPath to sha256(it) }
+        assertEquals(expected, recovered)
+        // An HSM kit's reference is signed with the rest of the kit.
+        val altered = File(hsmOrg, "kit-1.sinokit").readText().replace("\"label\":\"sino-recovery\"", "\"label\":\"other\"")
+        assertThrows(IllegalArgumentException::class.java) { OrganisationRecovery.readKit(altered) }
+    }
+
+    @Test
+    fun `the recovery tool prints what the HSM must decrypt, then takes its answer`() {
+        val args = arrayOf(
+            "list", "--vault", providers[0].path, "--vault", providers[1].path, "--recovery-file", File(hsmOrg, "recovery.sinorecovery").path,
+            "--kit", File(hsmOrg, "kit-1.sinokit").path, "--kit", File(hsmOrg, "kit-2-paper.txt").path,
+        )
+        val first = ByteArrayOutputStream()
+        assertEquals(SinoDecryptorCLI.EXIT_ERROR, SinoDecryptorCLI.run(args, PrintStream(first, true, "UTF-8"), ByteArrayInputStream(ByteArray(0))))
+        val asked = first.toString("UTF-8")
+        val ciphertext = Regex("decrypt ([A-Za-z0-9+/=]+)").find(asked)?.groupValues?.get(1)
+        assertTrue(asked, ciphertext != null && "sino-recovery" in asked)
+        val second = ByteArrayOutputStream()
+        val code = SinoDecryptorCLI.run(args + arrayOf("--hsm-answer", hsmDecrypts(ciphertext!!)), PrintStream(second, true, "UTF-8"), ByteArrayInputStream(ByteArray(0)))
+        assertEquals(second.toString("UTF-8"), SinoDecryptorCLI.EXIT_OK, code)
+    }
 }

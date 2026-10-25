@@ -138,7 +138,7 @@ object SharedFolderRecovery {
         require(kitSet == keys.kitSetId) { "This folder is sealed to kit set $kitSet: bring those kits" }
         val sealed = requireNotNull(manifest.orgRecoveryBase64) { "This folder has no organisation copy" }
         val domain = "SINO/V1/SHARE-ORG-RECOVERY|${manifest.orgId}|${manifest.shareId}|${manifest.epoch}|$kitSet|"
-        val plain = openHybrid(base64(sealed), domain, keys.rsaPrivateKeyPkcs8, keys.rsaPublicKeySpki, keys.kemSeed, keys.kemPublicKey)
+        val plain = openHybrid(base64(sealed), domain, keys::rsaDecrypt, keys.rsaPublicKeySpki, keys.kemSeed, keys.kemPublicKey)
         return bundle(manifest, plain)
     }
 
@@ -168,7 +168,7 @@ object SharedFolderRecovery {
         try {
             val kem = MLKEMEngine().keyPairFromSeed(seed)
             val domain = "SINO/V1/SHARE-KEYS|${manifest.shareId}|$vaultId|${manifest.epoch}|"
-            val plain = openHybrid(base64(entry.sealedBase64), domain, rsaPrivate, base64(secret.rsaPublicKeySpkiBase64), seed, kem.publicKey)
+            val plain = openHybrid(base64(entry.sealedBase64), domain, { OrganisationRecovery.rsaDecrypt(it, rsaPrivate) }, base64(secret.rsaPublicKeySpkiBase64), seed, kem.publicKey)
             return bundle(manifest, plain)
         } finally {
             SecurityUtils.fillZero(seed)
@@ -338,7 +338,7 @@ object SharedFolderRecovery {
      * The hybrid container (`SINO ‖ 3 ‖ u16 rsaCtLength ‖ rsaCt ‖ kemCt(1088) ‖ iv(12) ‖ gcm`), opened under
      * `HKDF-SHA-512(kemSecret ‖ rsaSecret, domain + hex(SHA-256(kemCt ‖ rsaCt ‖ rsaSpki ‖ kemPublicKey)), 32)`.
      */
-    private fun openHybrid(container: ByteArray, domain: String, rsaPkcs8: ByteArray, rsaSpki: ByteArray, kemPrivate: ByteArray, kemPublic: ByteArray): ByteArray {
+    private fun openHybrid(container: ByteArray, domain: String, rsaDecrypt: (ByteArray) -> ByteArray, rsaSpki: ByteArray, kemPrivate: ByteArray, kemPublic: ByteArray): ByteArray {
         val buffer = ByteBuffer.wrap(container)
         require(container.size > 7 + MLKEMEngine.CIPHERTEXT_SIZE + 28) { "The sealed keys are truncated" }
         val magic = ByteArray(4).also { buffer.get(it) }
@@ -355,7 +355,7 @@ object SharedFolderRecovery {
         var kek: ByteArray? = null
         try {
             kemSecret = MLKEMEngine().decapsulate(kemCt, kemPrivate)
-            rsaSecret = OrganisationRecovery.rsaDecrypt(rsaCt, rsaPkcs8)
+            rsaSecret = rsaDecrypt(rsaCt)
             require(rsaSecret.size == 32) { "The folder's keys do not open" }
             val transcript = MessageDigest.getInstance("SHA-256").digest(kemCt + rsaCt + rsaSpki + kemPublic)
             ikm = kemSecret + rsaSecret

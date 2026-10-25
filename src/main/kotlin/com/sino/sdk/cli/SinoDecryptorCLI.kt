@@ -25,8 +25,11 @@ import kotlin.system.exitProcess
  * share-recover    --share <dir> --out <dir> [--include-trashed] --kit <file> [--kit <file> ...] [--kit-passphrases <file>]
  *
  * key option:      --phrase-file <file> | --phrase-stdin   (default: a masked prompt)
- *              or  --recovery-file <file> --kit <file> [--kit <file> ...] [--kit-passphrases <file>]
+ *              or  --recovery-file <file> --kit <file> [--kit <file> ...] [--kit-passphrases <file>] [--hsm-answer <base64>]
  * ```
+ * When the organisation keeps its recovery key's RSA half in an HSM, a first run prints what the HSM must decrypt;
+ * the run again takes its answer with `--hsm-answer` (32 bytes, base64: one recovery's secret, which opens nothing
+ * without the kits).
  * A shared folder (SPECIFICATION.md §13) opens with the organisation's kits: `--share` is a copy of its storage,
  * `shares/<share id>/`.
  * The phrase and kit passphrases are never accepted as command-line arguments (they would show in process listings
@@ -165,6 +168,7 @@ object SinoDecryptorCLI {
         return try {
             val manifest = SharedFolderRecovery.readManifest(folder)
             OrganisationRecovery.open(readKits(options, out)).use { orgKeys ->
+                options.hsmAnswer?.let(orgKeys::answerHsm)
                 SharedFolderRecovery.openWithKits(manifest, orgKeys).use { keys ->
                     val index = SharedFolderRecovery.index(folder, manifest, keys)
                     out.println("Shared folder \"${index.name}\": ${index.files.size} file(s), ${index.trash.size} in its trash.")
@@ -199,6 +203,7 @@ object SinoDecryptorCLI {
         val recoveryFile = options.recoveryFile!!
         require(recoveryFile.isFile) { "recovery file not found: ${recoveryFile.path}" }
         OrganisationRecovery.open(readKits(options, out)).use { keys ->
+            options.hsmAnswer?.let(keys::answerHsm)
             OrganisationRecovery.openRecoveryFile(recoveryFile.readText(), keys).use { opened ->
                 return VaultRecovery.openWithKeys(options.vaults, opened.rootKey, opened.vaultSalt)
             }
@@ -296,6 +301,8 @@ object SinoDecryptorCLI {
         val kits: List<File> = emptyList(),
         val kitPassphrases: File? = null,
         val share: File? = null,
+        /** The organisation's HSM's answer, when its recovery key's RSA half is there. */
+        val hsmAnswer: String? = null,
     ) {
         companion object {
             fun parse(args: List<String>): Options {
@@ -308,6 +315,7 @@ object SinoDecryptorCLI {
                 val kits = mutableListOf<File>()
                 var kitPassphrases: File? = null
                 var share: File? = null
+                var hsmAnswer: String? = null
                 var i = 0
                 fun value(flag: String): String = args.getOrNull(++i) ?: throw IllegalArgumentException("$flag needs a value")
                 while (i < args.size) {
@@ -321,6 +329,7 @@ object SinoDecryptorCLI {
                         "--kit" -> kits += File(value(flag))
                         "--kit-passphrases" -> kitPassphrases = File(value(flag))
                         "--share" -> share = File(value(flag))
+                        "--hsm-answer" -> hsmAnswer = value(flag)
                         else -> throw IllegalArgumentException("unknown option '$flag'")
                     }
                     i++
@@ -328,7 +337,8 @@ object SinoDecryptorCLI {
                 require(!(phraseFile != null && phraseStdin)) { "use either --phrase-file or --phrase-stdin, not both" }
                 require(recoveryFile == null || (phraseFile == null && !phraseStdin)) { "use either the recovery phrase or the recovery file and kits, not both" }
                 require(kits.isEmpty() || recoveryFile != null || share != null) { "--kit goes with --recovery-file or --share" }
-                return Options(vaults, out, phraseFile, phraseStdin, includeTrashed, recoveryFile, kits, kitPassphrases, share)
+                require(hsmAnswer == null || kits.isNotEmpty()) { "--hsm-answer goes with the kits" }
+                return Options(vaults, out, phraseFile, phraseStdin, includeTrashed, recoveryFile, kits, kitPassphrases, share, hsmAnswer)
             }
         }
     }
@@ -351,6 +361,8 @@ object SinoDecryptorCLI {
                     or, for a vault your organisation manages:
                          --recovery-file <file> --kit <file> [--kit <file> ...] [--kit-passphrases <file>]
                          (enough kits for the threshold; sealed kits take the next line of the passphrase file, or ask)
+                         [--hsm-answer <base64>]  when your organisation keeps the recovery key's RSA half in an
+                         HSM: the first run prints what it must decrypt; run again with its answer
             Existing files in the output folder are never overwritten.
             """.trimIndent()
         )

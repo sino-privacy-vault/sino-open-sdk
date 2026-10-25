@@ -27,8 +27,22 @@ import javax.crypto.spec.PSource
  * Everything is checked as Sino checks it: a full kit's ML-DSA-65 signature by the root key, the kits' fields
  * matching, and a check value after combining (the sealed RSA key must open, and the derived keys must match the
  * kits' public keys or, for paper kits, their root fingerprint).
+ *
+ * When the RSA half of the recovery key is in the organisation's HSM (`rsaKeyInHsm`), the kits hold no RSA private
+ * key: opening asks for the HSM's answer ([HsmAnswerNeededException]), which [OrganisationKeys.answerHsm] takes.
  */
 object OrganisationRecovery {
+
+    /** Where the RSA half of the recovery key is, when an HSM holds it: its label there and its public key (base64 SPKI). */
+    @Serializable
+    data class HsmKey(val label: String, val publicKeySpkiBase64: String)
+
+    /**
+     * The HSM must decrypt [ciphertextBase64] (RSA-OAEP, SHA-256, MGF1-SHA-256) with its key [keyLabel]; give its answer
+     * (base64 of 32 bytes) to [OrganisationKeys.answerHsm] and open again.
+     */
+    class HsmAnswerNeededException(val ciphertextBase64: String, val keyLabel: String) :
+        IllegalArgumentException("The recovery key's RSA half is in the organisation's HSM: have key \"$keyLabel\" decrypt $ciphertextBase64 (RSA-OAEP, SHA-256, MGF1-SHA-256) and give its answer")
 
     // --- Formats (field order and names as Sino writes them) -----------------------------------------------------------
 
@@ -37,6 +51,7 @@ object OrganisationRecovery {
         val format: String, val version: Int, val orgId: String, val orgName: String, val kitSetId: String, val createdAt: Long,
         val holder: String, val threshold: Int, val shareCount: Int, val shareIndex: Int, val shareBase64: String,
         val rootPublicKeyBase64: String, val recoveryPublicKey: String, val sealedRsaPrivateKeyBase64: String,
+        val rsaKeyInHsm: HsmKey? = null,
         val signatureBase64: String? = null,
     )
 
@@ -45,6 +60,7 @@ object OrganisationRecovery {
         val format: String, val version: Int, val orgId: String, val orgName: String, val kitSetId: String, val createdAt: Long,
         val holder: String, val threshold: Int, val shareCount: Int, val shareIndex: Int, val shareBase64: String,
         val rootFingerprint: String, val sealedRsaPrivateKeyBase64: String,
+        val rsaKeyInHsm: HsmKey? = null,
     )
 
     @Serializable
@@ -84,11 +100,13 @@ object OrganisationRecovery {
         internal val recoveryPublicKey: String?,
         /** A paper kit's root fingerprint; for a full kit, the fingerprint of its root key. */
         internal val rootFingerprint: String,
+        /** The HSM holding the RSA half, if one does; [sealedRsa] is then empty. */
+        val hsm: HsmKey? = null,
     ) {
         /** Matches another kit of the same ceremony: everything but holder, index and share. */
         internal fun sameSetAs(other: OrgKit) = orgId == other.orgId && orgName == other.orgName && kitSetId == other.kitSetId &&
             threshold == other.threshold && shareCount == other.shareCount && rootFingerprint == other.rootFingerprint &&
-            sealedRsa.contentEquals(other.sealedRsa)
+            sealedRsa.contentEquals(other.sealedRsa) && hsm == other.hsm
     }
 
     /** The kit asks for its passphrase: [holder] can be read without it. */
@@ -133,14 +151,33 @@ object OrganisationRecovery {
     class OrganisationKeys internal constructor(
         val orgId: String,
         val kitSetId: String,
-        internal val rsaPrivateKeyPkcs8: ByteArray,
+        /** Null when the RSA half is in the organisation's HSM ([hsm]). */
+        internal val rsaPrivateKeyPkcs8: ByteArray?,
         internal val rsaPublicKeySpki: ByteArray,
         internal val kemSeed: ByteArray,
         internal val kemPublicKey: ByteArray,
+        val hsm: HsmKey? = null,
     ) : AutoCloseable {
+        private var hsmAnswer: ByteArray? = null
+
+        /** The HSM's answer (base64 of the 32 bytes it decrypted) to the [HsmAnswerNeededException] opening threw. */
+        fun answerHsm(base64: String) {
+            val secret = SecurityUtils.fromBase64(base64.trim().toCharArray())
+            require(secret.size == 32) { "The HSM's answer is 32 bytes, in base64" }
+            hsmAnswer?.let { SecurityUtils.fillZero(it) }
+            hsmAnswer = secret
+        }
+
+        /** The RSA half's decryption: with the key from the kits, or the HSM's answer. */
+        internal fun rsaDecrypt(ciphertext: ByteArray): ByteArray {
+            rsaPrivateKeyPkcs8?.let { return rsaDecrypt(ciphertext, it) }
+            return hsmAnswer?.copyOf() ?: throw HsmAnswerNeededException(java.util.Base64.getEncoder().encodeToString(ciphertext), hsm!!.label)
+        }
+
         override fun close() {
             SecurityUtils.fillZero(rsaPrivateKeyPkcs8)
             SecurityUtils.fillZero(kemSeed)
+            SecurityUtils.fillZero(hsmAnswer)
         }
     }
 
@@ -160,7 +197,8 @@ object OrganisationRecovery {
         try {
             rsaKey = hkdf.derive(secret, "SINO/V1/ORG-KIT-RSA|$ctx", CryptoConstants.AES_KEY_SIZE)
             val sealed = first.sealedRsa
-            val rsaPrivate = try {
+            // With the RSA half in an HSM, the kits name its public key and hold nothing to open.
+            val rsaPrivate = if (first.hsm != null) null else try {
                 AESEncryptionEngine().decrypt(sealed.copyOfRange(CryptoConstants.GCM_IV_SIZE, sealed.size), rsaKey, sealed.copyOfRange(0, CryptoConstants.GCM_IV_SIZE))
             } catch (e: Exception) {
                 throw IllegalArgumentException("The kits do not fit together: one of them is wrong or damaged")
@@ -171,17 +209,17 @@ object OrganisationRecovery {
             val root = MLDSAEngine().keyPairFromSeed(xi)
             val fingerprintOk = fingerprint(root.publicKey) == first.rootFingerprint
             root.zeroize()
-            val rsaPublic = rsaPublicKeyOf(rsaPrivate)
+            val rsaPublic = rsaPrivate?.let(::rsaPublicKeyOf) ?: SecurityUtils.fromBase64(first.hsm!!.publicKeySpkiBase64.toCharArray())
             val keysMatch = kits.mapNotNull { it.recoveryPublicKey }.all { token ->
                 val (spki, kemPublic) = recipient(token)
-                spki.contentEquals(rsaPublic) && kemPublic.contentEquals(kem.publicKey)
+                spki.contentEquals(rsaPublic) && kemPublic.contentEquals(kem.publicKey) && hsmRecipient(token) == (first.hsm != null)
             }
             if (!fingerprintOk || !keysMatch) {
                 SecurityUtils.fillZero(rsaPrivate)
                 SecurityUtils.fillZero(kemSeed)
                 throw IllegalArgumentException("The kits do not fit together: one of them is wrong or damaged")
             }
-            return OrganisationKeys(first.orgId, first.kitSetId, rsaPrivate, rsaPublic, kemSeed, kem.publicKey)
+            return OrganisationKeys(first.orgId, first.kitSetId, rsaPrivate, rsaPublic, kemSeed, kem.publicKey, first.hsm)
         } finally {
             SecurityUtils.fillZero(secret)
             SecurityUtils.fillZero(rsaKey)
@@ -194,7 +232,8 @@ object OrganisationRecovery {
 
     /**
      * Opens a vault's recovery file with [keys]: the vault's root key and salt, as a recovery phrase would give them.
-     * Throws [IllegalArgumentException] when it is another organisation's or kit set's, or does not open.
+     * Throws [IllegalArgumentException] when it is another organisation's or kit set's, or does not open, and
+     * [HsmAnswerNeededException] when the HSM has not answered yet.
      */
     fun openRecoveryFile(recoveryFile: String, keys: OrganisationKeys): RecoveryKit.RecoveredVault {
         val blob = json.decodeFromString(Blob.serializer(), recoveryFile.trim())
@@ -220,7 +259,7 @@ object OrganisationRecovery {
         var payload: ByteArray? = null
         try {
             kemSecret = MLKEMEngine().decapsulate(kemCt, keys.kemSeed)
-            rsaSecret = rsaDecrypt(rsaCt, keys.rsaPrivateKeyPkcs8)
+            rsaSecret = keys.rsaDecrypt(rsaCt)
             require(rsaSecret.size == 32) { "The recovery file does not open with these kits" }
             val transcript = MessageDigest.getInstance("SHA-256").digest(kemCt + rsaCt + keys.rsaPublicKeySpki + keys.kemPublicKey)
             val domain = "SINO/V1/ORG-RECOVERY|${blob.orgId}|${blob.vaultId}|${blob.kitSetId}|" + SecurityUtils.toHex(transcript).concatToString()
@@ -255,10 +294,16 @@ object OrganisationRecovery {
         val unsigned = json.encodeToString(Kit.serializer(), kit.copy(signatureBase64 = null)).encodeToByteArray()
         val signature = kit.signatureBase64?.let { SecurityUtils.fromBase64(it.toCharArray()) } ?: throw IllegalArgumentException("The kit is not signed")
         require(MLDSAEngine().verify(unsigned, signature, root)) { "${kit.holder}'s kit was changed or damaged: its signature does not check out" }
-        recipient(kit.recoveryPublicKey)
+        val (spki, _) = recipient(kit.recoveryPublicKey)
+        kit.rsaKeyInHsm?.let { hsm ->
+            require(kit.sealedRsaPrivateKeyBase64.isEmpty() && SecurityUtils.fromBase64(hsm.publicKeySpkiBase64.toCharArray()).contentEquals(spki)) {
+                "${kit.holder}'s kit names an HSM key that is not its recovery key"
+            }
+        }
         return OrgKit(
             kit.orgId, kit.orgName, kit.kitSetId, kit.holder, kit.threshold, kit.shareCount, kit.shareIndex,
             share(kit.shareBase64), SecurityUtils.fromBase64(kit.sealedRsaPrivateKeyBase64.toCharArray()), root, kit.recoveryPublicKey, fingerprint(root),
+            kit.rsaKeyInHsm,
         )
     }
 
@@ -266,9 +311,11 @@ object OrganisationRecovery {
         require(kit.format == PAPER && kit.version == 1) { "Unknown paper kit version" }
         checkHeader(kit.kitSetId, kit.holder, kit.threshold, kit.shareCount, kit.shareIndex)
         require(kit.rootFingerprint.length == 43) { "Malformed root fingerprint" }
+        require(kit.rsaKeyInHsm == null || kit.sealedRsaPrivateKeyBase64.isEmpty()) { "A paper kit with an HSM key holds no RSA key" }
         return OrgKit(
             kit.orgId, kit.orgName, kit.kitSetId, kit.holder, kit.threshold, kit.shareCount, kit.shareIndex,
             share(kit.shareBase64), SecurityUtils.fromBase64(kit.sealedRsaPrivateKeyBase64.toCharArray()), null, null, kit.rootFingerprint,
+            kit.rsaKeyInHsm,
         )
     }
 
@@ -378,14 +425,20 @@ object OrganisationRecovery {
     private fun fingerprint(rootPublicKey: ByteArray): String =
         SecurityUtils.toBase64(MessageDigest.getInstance("SHA-256").digest(rootPublicKey), urlSafe = true, pad = false).concatToString()
 
-    /** A recipient token: base64url of `[1][u16 rsa length][RSA SPKI][ML-KEM-768 public key]`. */
+    /**
+     * A recipient token: base64url of `[version][u16 rsa length][RSA SPKI][ML-KEM-768 public key]`; version 1, or 2 for
+     * an RSA key in an HSM (OAEP with MGF1-SHA-256).
+     */
     internal fun recipient(token: String): Pair<ByteArray, ByteArray> {
         val bytes = SecurityUtils.fromBase64(token.trim().toCharArray(), urlSafe = true)
-        require(bytes.size > 3 && bytes[0].toInt() == 1) { "Unknown recovery key version" }
+        require(bytes.size > 3 && (bytes[0].toInt() == 1 || bytes[0].toInt() == 2)) { "Unknown recovery key version" }
         val rsaLength = ((bytes[1].toInt() and 0xFF) shl 8) or (bytes[2].toInt() and 0xFF)
         require(bytes.size == 3 + rsaLength + MLKEMEngine.PUBLIC_KEY_SIZE) { "Malformed recovery key" }
         return bytes.copyOfRange(3, 3 + rsaLength) to bytes.copyOfRange(3 + rsaLength, bytes.size)
     }
+
+    /** True for a version 2 recipient token: its RSA key is in an HSM. */
+    private fun hsmRecipient(token: String): Boolean = SecurityUtils.fromBase64(token.trim().toCharArray(), urlSafe = true)[0].toInt() == 2
 
     private fun rsaPublicKeyOf(pkcs8: ByteArray): ByteArray {
         val factory = KeyFactory.getInstance("RSA")
