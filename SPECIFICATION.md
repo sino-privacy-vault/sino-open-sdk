@@ -95,23 +95,30 @@ A batch is `container(batch key, gzip(JSON))` (§3) of:
   "files":   { "<file name>": <entry> },
   "deleted": { "<file name>": { "version": 2, "checksum": "...", "deletedAt": 0 } },
   "acks":    { "<device id>": { "version": 6, "at": 0 } },
-  "folderKey": "<32 hex>", "pathChangedAt": 0, "removedAt": 0 }
+  "folderKey": "<32 hex>", "pathChangedAt": 0, "removedAt": 0,
+  "replaced": { "<cloud name>": { "checksum": "...", "replacedAt": 0 } } }
 ```
 
 `folderKey` is the folder's directory (§5; empty for the root folder only). `pathChangedAt` is when `folderPath` was
 last set by a rename or move (0: never). `removedAt` is when the folder was deleted (0: it exists); a deleted folder's
-batch lists no live entries.
+batch lists no live entries. `replaced` lists the blobs of versions an edit replaced; Sino deletes each one a week
+after `replacedAt` once no entry names it. A reader can ignore it.
 
 Each entry carries `originalName`, `relativePath` (the folder), `mimeType`, `size`, `checksum` (SHA-256 of the file
 as added), `encryptedDEK` (§1), `iv` (base64 base nonce), `encryptionVersion` (2), `isChunked` (true),
-`isCompressed`, `cloudChecksum` (§2), `cloudName`, `isTrashed`, `isDuress` (false in the real vault), `timestamp`
-and `providerHints`. Unknown fields are ignored.
+`isCompressed`, `cloudChecksum` (§2), `cloudName`, `isTrashed`, `isDuress` (false in the real vault), `timestamp`,
+`providerHints` and `lineage`: the earlier versions this one was edited from, newest first, each as the first 16
+characters of its `checksum` (only versions that reached a cloud, at most 100). Unknown fields are ignored.
+
+A name holds one version. When two devices edit one file apart (neither version is in the other's `lineage`), the
+version published later is kept beside the other under a name of its own, `<name> (<device>, <yyyy-mm-dd>)<.ext>`.
 
 - **Placement:** all batches share one key, so a reader must check that the decrypted `folderKey` is the directory
   and maps to the batch name it was found under (§5), that only the root folder's key and path are empty, and must
   discard batches that do not.
 - **Merge across providers:** group the batches by `folderKey` and sort the copies by `version`. Take the union of
-  the entries, with higher versions winning name conflicts. Keep the newest tombstone per name. An entry survives a
+  the entries, with higher versions winning name conflicts, except that an entry whose `lineage` holds the other's
+  checksum (an edit of it) always wins. Keep the newest tombstone per name. An entry survives a
   tombstone only if a batch newer than the tombstone lists it. The path is the one with the newest `pathChangedAt`
   (then version); `removedAt` is the highest version's.
 
