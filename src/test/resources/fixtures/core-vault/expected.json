@@ -1,14 +1,14 @@
 {
-  "vaultIdentifier": "bb8989a09cce183f5db23264be5e6b7f",
+  "vaultIdentifier": "cb3dfd158c371cd7b57a7ba4bdbf4d31",
   "devices": 2,
-  "revoked": "device-1fab6d88-e3dc-4ac0-8e41-2780e184ab66",
-  "phone": "device-650e2cad-2821-41f4-bfff-466a5712d567",
+  "revoked": "device-8a6b8742-ba98-4552-8ae8-ca77ada80fba",
+  "phone": "device-86b3025a-5f1b-445f-b962-331e78842ac7",
   "phoneName": "Phone",
   "files": {
-    "DCIM/Camera/IMG_0001.jpg": "0cf3fe5ee8c09d78e770e526d66ec238d8c9a89dd999bd7dc2df6ef65995a4d6",
-    "DCIM/Camera/IMG_0002.jpg": "39c12fee4e750e685c9121dd2a84df1ef8f911244ba7bfe3cfb9358149770b68",
+    "DCIM/Camera/IMG_0001.jpg": "ed89a96ca7e26838e874c330a8be98277d32f09bc923199692dc6f2fa4a7fd0c",
+    "DCIM/Camera/IMG_0002.jpg": "0b06e926679e25eba37f44821de038f8762ea6e1625d0fa1050c87542f2bc467",
     "Docs/Ünïcødé/naïve ✓.txt": "a6745d77670391f486b213eef2a38cf5c7ff62becd7b95217acf1f962a602162",
-    "archive.bin": "f6b0b37272486e04f0bfffca4dbac58ad9d284d97b8c8ed58470757bef318a33",
+    "archive.bin": "6fdd3a56cea550c7d93d09ceb24d1325245bc746c80e5f6e9fc6cf86d709d741",
     "notes.txt": "86cc9ec0fbd8f03847ad000080eb70e3278f4c37647d8ebe59866436edfc3f58",
     "report.pdf": "070fc9fafa90a25ab3eb8efe6160cd9ebc87831c286b8ef50d5b1b77329ed68d"
   },
@@ -16,13 +16,13 @@
     "DCIM/Camera/trashed.txt": "ceabf4582935c3aaeb3e18e83a38d75bcee75db96d3d8f5dd4bc3cf24b618bd7"
   },
   "share": {
-    "shareId": "25894e041d306e0ac70cb26ea1ab42ac",
+    "shareId": "f2d99354f30590b1801b1afe5c092773",
     "vaultId": "vault-fixture",
     "name": "Fixture project",
     "files": {
     "Specs/2026/q1.txt": "bba839c7e560cad6a466d0294dd6a57b0a26c58142694b8ee9944111f370e041",
     "Specs/spec.txt": "688b9329eddb9906e3a69a6f19f534c57619ee19b01ad476763cdd1975b9892a",
-    "deck.pdf": "0c05b95e94739fb52a200bc4416176d285ed84e769f4c87c4c90e45155a05e37",
+    "deck.pdf": "4c94fe734d75108c123db78d8fcbd52188ff86680d31c6e9233a5a9debda1250",
     "notes.md": "65a6e5f8cbbfd0f02c0e826731f5d1069b820198cb6a8c22bdd7f869c7bc46a9",
     "plan (conflict, vault-colleague, 2025-10-09).txt": "a5f0d47f29d7c1ccff912eb9373aaacf2611f7aa230da3daa3a024fcffc093e5",
     "plan.txt": "c7a9bf41fe2b97148aef09e5b62c698c4bc9f734923e7558019fa888dc803bb0"
@@ -30,6 +30,12 @@
     "trash": {
     "Archive/old plan.txt": "2d96ef9e8f9c0ff126499370a381edc4a9843f99607f2a3f8012810c02834a2c",
     "draft.txt": "17d46ba7fd33591eb8f1a9cdbeac45d9ebc76bda0a33bb2f4c74956fc0327365"
-  }
+  },
+    "link": {
+      "linkId": "0123456789abcdef0123456789abcdef",
+      "fragment": "6FDMEEY_9sBgZ2YhXWL3nO04y_F_P-zrxy0QrrVDjJI",
+      "name": "deck.pdf",
+      "sha256": "4c94fe734d75108c123db78d8fcbd52188ff86680d31c6e9233a5a9debda1250"
+    }
   }
 }

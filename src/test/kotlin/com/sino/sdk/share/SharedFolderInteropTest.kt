@@ -111,4 +111,23 @@ class SharedFolderInteropTest {
         val other = manifest.copy(orgId = "org-other")
         kits().use { orgKeys -> assertThrows(IllegalArgumentException::class.java) { SharedFolderRecovery.openWithKits(other, orgKeys) } }
     }
+
+    @Test
+    fun `a share link's copy opens with the link's secret alone, and a cut or wrong one does not`() {
+        val link = expected["link"]!!.jsonObject
+        val id = link["linkId"]!!.jsonPrimitive.content
+        val fragment = link["fragment"]!!.jsonPrimitive.content
+        val details = ShareLinkReader.details(fragment, File(folder, "links/$id.details").readBytes())
+        assertEquals(link["name"]!!.jsonPrimitive.content, details.name)
+        val content = File(folder, "links/$id.enc")
+        val out = java.io.ByteArrayOutputStream()
+        ShareLinkReader.open(fragment, details, content, out)
+        assertEquals(link["sha256"]!!.jsonPrimitive.content, SecurityUtils.toHex(MessageDigest.getInstance("SHA-256").digest(out.toByteArray())).concatToString())
+        // Another secret does not open the details; a copy cut at a chunk boundary is refused.
+        val other = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(32) { 7 })
+        assertThrows(Exception::class.java) { ShareLinkReader.details(other, File(folder, "links/$id.details").readBytes()) }
+        val cut = temp.newFile().apply { writeBytes(content.readBytes().copyOfRange(0, 1024 * 1024 + 16)) }
+        assertThrows(IllegalArgumentException::class.java) { ShareLinkReader.open(fragment, details, cut, java.io.ByteArrayOutputStream()) }
+    }
+
 }

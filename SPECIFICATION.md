@@ -322,3 +322,23 @@ conflict: the earliest (by `modifiedAt`, then `revisionId`) keeps the name, the 
 `modifiedAt`, then `revisionId`). An entry sits in the subfolder `parentId` names, or at the top when that subfolder is
 gone or the entry is a subfolder whose parents lead back to itself. What sits in a subfolder in the trash is in the
 trash with it. `share-recover` writes subfolders as directories.
+
+**Copies in several storage targets.** An organisation with several storage targets keeps a folder in each, and any
+one is enough to recover it. A target that was out of reach may hold an older `share_manifest.json` or batch until a
+member's app fills it in: where several copies are at hand, take the manifest with the highest `manifestVersion` and,
+for each writer, the batch with the highest `sequence`. Content is written once under its own name, so any copy of a
+blob is the right one.
+
+**Share links.** A link `https://<hub>/l/<link id>#<secret>` opens one file for anyone who has it. The secret is 32
+bytes, unpadded base64url, in the fragment (browsers never send it). From it, with HKDF-SHA-512 and an empty salt:
+`contentKey = HKDF(secret, "SINO/V1/LINK-CONTENT", 32)` and `detailsKey = HKDF(secret, "SINO/V1/LINK-DETAILS", 32)`.
+The folder's storage holds the link's copy:
+
+```text
+links/<link id>.details   iv(12) || AES-256-GCM(detailsKey, iv, JSON)
+links/<link id>.enc       the file in the chunked format of §2 under contentKey and the details' iv
+```
+
+The details JSON is `format` (`SINO-LINK-DETAILS`), `version` (1), `name`, `mimeType`, `size` and `ivBase64`. A copy
+whose plaintext is not `size` bytes, or that is not a whole number of chunks for it, is refused. The hub serves the two
+at `/l/<link id>/details` and `/l/<link id>/content`; `ShareLinkReader` opens them.

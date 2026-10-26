@@ -97,7 +97,7 @@ Only the real vault can be recovered. The decoy (duress) vault is bound to one d
 | `crypto` | AES-256-GCM with the chunked format 2 (identical to Sino's engine), HKDF-SHA-512, Argon2id, ML-KEM-768 and ML-DSA-65 (BouncyCastle, an independent implementation), device-list entries (public keys and sealed device names), the manifest models, and strict String-free encoders (`SecurityUtils`). |
 | `vault` | The vault format: root-key schedule (`VaultKeys`), recovery backup (`RecoveryKit`), artifact container, cloud layout, metadata batches (decode, placement check, cross-provider merge), manifest verification and `VaultRecovery`. |
 | `org` | Managed vaults: reading organisation kits (full, sealed and paper), combining them (Shamir over GF(2^8)) with the check against the root key, and opening a vault's recovery file (`OrganisationRecovery`). |
-| `share` | Shared folders: their manifest, keys opened with the kits or a member's vault key, signed batches merged by version vectors, and the files (`SharedFolderRecovery`). |
+| `share` | Shared folders: their manifest, keys opened with the kits or a member's vault key, signed batches merged by version vectors, and the files (`SharedFolderRecovery`); share links' copies opened with the link's secret (`ShareLinkReader`). |
 | `cli` | The recovery tool (`SinoDecryptorCLI`). |
 | `util` | Sino's log sanitizer (`SinoPrivacyEngine`), the same rules the apps apply before anything is written to a log. |
 
