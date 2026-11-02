@@ -28,7 +28,13 @@ data class FolderMetadataBatch(
     val pathChangedAt: Long = 0,
     /** When the folder was deleted (0: it exists). */
     val removedAt: Long = 0,
+    /** Blobs of versions an edit replaced (cloud name -> what it held), to be deleted after a week. */
+    val replaced: Map<String, ReplacedCopy> = emptyMap(),
 )
+
+/** The blob of version [checksum] of a file, replaced by an edit at [replacedAt]. */
+@Serializable
+data class ReplacedCopy(val checksum: String, val replacedAt: Long)
 
 @Serializable
 data class FileTombstone(val version: Long, val checksum: String, val deletedAt: Long)
@@ -61,7 +67,12 @@ data class MediaMetadata(
     val providerHints: List<String> = emptyList(),
     val cloudName: String? = null,
     val isTrashed: Boolean = false,
-)
+    /** The earlier versions this one was edited from, newest first: the first 16 characters of each one's [checksum]. */
+    val lineage: List<String> = emptyList(),
+) {
+    /** Whether this version was edited, directly or not, from [older]. */
+    fun descendsFrom(older: MediaMetadata): Boolean = older.checksum.take(16) in lineage
+}
 
 /**
  * Sino's batch format: JSON -> gzip -> [ArtifactContainer] under the vault's batch key ([VaultKeys.metadataBatchKey]).
@@ -109,7 +120,7 @@ object FolderMetadataBatchCodec {
 
     /**
      * Sino's union merge of the copies of one folder's batch (one per provider): every entry of every copy is kept
-     * (higher versions win name conflicts), and an entry deleted by a tombstone survives only if a batch newer than
+     * (higher versions win name conflicts, except over an edit of their own entry: see [MediaMetadata.lineage]), and an entry deleted by a tombstone survives only if a batch newer than
      * the deletion lists it. The path with the newest `pathChangedAt` (then version) wins; `removedAt` is the newest
      * version's.
      */
@@ -120,19 +131,25 @@ object FolderMetadataBatchCodec {
         val lastSeen = mutableMapOf<String, Long>()
         val tombstones = mutableMapOf<String, FileTombstone>()
         val acks = mutableMapOf<String, DeviceAck>()
+        val replaced = mutableMapOf<String, ReplacedCopy>()
         ordered.forEach { batch ->
             batch.files.forEach { (name, entry) ->
                 val existing = merged[name]
-                merged[name] = if (existing != null && existing.checksum == entry.checksum) {
-                    entry.copy(providerHints = (existing.providerHints + entry.providerHints).distinct())
-                } else {
-                    entry
+                merged[name] = when {
+                    existing == null -> entry
+                    existing.checksum == entry.checksum -> entry.copy(providerHints = (existing.providerHints + entry.providerHints).distinct())
+                    existing.descendsFrom(entry) -> existing
+                    else -> entry
                 }
                 lastSeen[name] = batch.version
             }
             batch.deleted.forEach { (name, tombstone) ->
                 val known = tombstones[name]
                 if (known == null || tombstone.version > known.version) tombstones[name] = tombstone
+            }
+            batch.replaced.forEach { (blob, copy) ->
+                val known = replaced[blob]
+                if (known == null || copy.replacedAt < known.replacedAt) replaced[blob] = copy
             }
             batch.acks.forEach { (device, ack) ->
                 val known = acks[device]
@@ -145,7 +162,7 @@ object FolderMetadataBatchCodec {
         }
         val newestPath = ordered.maxWith(compareBy<FolderMetadataBatch> { it.pathChangedAt }.thenBy { it.version })
         return ordered.last().copy(
-            files = live, deleted = tombstones, acks = acks, lastUpdated = ordered.maxOf { it.lastUpdated },
+            files = live, deleted = tombstones, acks = acks, replaced = replaced, lastUpdated = ordered.maxOf { it.lastUpdated },
             folderPath = newestPath.folderPath, pathChangedAt = newestPath.pathChangedAt,
         )
     }
